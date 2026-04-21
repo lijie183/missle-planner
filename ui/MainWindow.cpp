@@ -1,6 +1,7 @@
 #include "ui/MainWindow.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -23,6 +24,7 @@
 #include <osgEarth/SpatialReference>
 
 #include "render/OsgEarthWidget.h"
+#include "ui/TelemetryPlotWidget.h"
 
 namespace {
 
@@ -55,6 +57,48 @@ QString phaseToText(mission::MissileSim::Phase phase) {
         default:
             return QStringLiteral("待命");
     }
+}
+
+double toRadians(double degrees) {
+    return degrees * 0.017453292519943295;
+}
+
+double metersPerLonDegree(double latDeg) {
+    constexpr double kMetersPerLatDegree = 111320.0;
+    return kMetersPerLatDegree * std::max(0.1, std::cos(toRadians(latDeg)));
+}
+
+double horizontalDistanceMeters(const osgEarth::GeoPoint& a, const osgEarth::GeoPoint& b) {
+    constexpr double kMetersPerLatDegree = 111320.0;
+    const double meanLat = (a.y() + b.y()) * 0.5;
+    const double dx = (b.x() - a.x()) * metersPerLonDegree(meanLat);
+    const double dy = (b.y() - a.y()) * kMetersPerLatDegree;
+    return std::sqrt(dx * dx + dy * dy);
+}
+
+double headingDegrees(const osgEarth::GeoPoint& from, const osgEarth::GeoPoint& to) {
+    const double meanLat = (from.y() + to.y()) * 0.5;
+    const double dx = (to.x() - from.x()) * metersPerLonDegree(meanLat);
+    const double dy = (to.y() - from.y()) * 111320.0;
+
+    if (std::abs(dx) < 1e-6 && std::abs(dy) < 1e-6) {
+        return 0.0;
+    }
+
+    double heading = std::atan2(dx, dy) * 57.29577951308232;
+    if (heading < 0.0) {
+        heading += 360.0;
+    }
+    return heading;
+}
+
+double pitchDegrees(const osgEarth::GeoPoint& from, const osgEarth::GeoPoint& to) {
+    const double horizontal = horizontalDistanceMeters(from, to);
+    const double dz = to.z() - from.z();
+    if (horizontal < 1e-6 && std::abs(dz) < 1e-6) {
+        return 0.0;
+    }
+    return std::atan2(dz, std::max(1e-3, horizontal)) * 57.29577951308232;
 }
 
 }  // namespace
@@ -161,6 +205,8 @@ void MainWindow::onPlanRoute() {
         m_earthWidget->clearImpactEffect();
     }
 
+    refreshSceneDataSourceLabel();
+
     statusBar()->showMessage(
         QStringLiteral("A*规划完成：航迹点 %1 个").arg(static_cast<int>(m_lastRoute.size())),
         3000);
@@ -201,6 +247,13 @@ void MainWindow::onStartSimulation() {
     m_phaseValue->setText(phaseToText(simState.phase));
     m_currentSpeedValue->setText(QStringLiteral("%1")
                                      .arg(simState.currentSpeedMetersPerSecond, 0, 'f', 1));
+
+    resetTelemetryPanel();
+    if (!m_lastRoute.empty()) {
+        updateTelemetryPanel(m_lastRoute.front(), simState, 0.016);
+    }
+
+    refreshSceneDataSourceLabel();
 
     m_simulationTimer.start();
     statusBar()->showMessage(QStringLiteral("三维推演进行中..."));
@@ -253,6 +306,8 @@ void MainWindow::onSimulationTick() {
     m_phaseValue->setText(phaseToText(simState.phase));
     m_currentSpeedValue->setText(QStringLiteral("%1")
                                      .arg(simState.currentSpeedMetersPerSecond, 0, 'f', 1));
+
+    updateTelemetryPanel(missilePoint, simState, realDeltaSeconds);
 
     if (!simState.running) {
         m_simulationTimer.stop();
@@ -314,9 +369,17 @@ void MainWindow::buildUi() {
     m_globeModeCombo->addItems({
         QStringLiteral("真实卫星地球（离线数据优先）"),
         QStringLiteral("演示态势地球（简化模型）")});
-    m_sceneDataSourceValue = new QLabel(QStringLiteral("待检测"), sceneGroup);
+    m_sceneDataSourceValue = new QLabel(QStringLiteral("待检测（运行后加载）"), sceneGroup);
+    auto* offlineHint = new QLabel(
+        QStringLiteral("离线数据推荐路径:\n"
+                       "data/earth/world.earth\n"
+                       "可选: resources/world.earth / default.earth"),
+        sceneGroup);
+    offlineHint->setWordWrap(true);
+    offlineHint->setStyleSheet(QStringLiteral("color: #8fb8dd;"));
     sceneLayout->addRow(QStringLiteral("地球模型"), m_globeModeCombo);
     sceneLayout->addRow(QStringLiteral("数据源"), m_sceneDataSourceValue);
+    sceneLayout->addRow(QStringLiteral("离线放置"), offlineHint);
     panelLayout->addWidget(sceneGroup);
 
     auto* tabs = new QTabWidget(panel);
@@ -484,10 +547,32 @@ void MainWindow::buildUi() {
     tabs->addTab(executeTab, QStringLiteral("推演监控"));
     panelLayout->addWidget(tabs, 1);
 
-    m_earthWidget = new OsgEarthWidget(central);
+    auto* rightPane = new QWidget(central);
+    auto* rightLayout = new QVBoxLayout(rightPane);
+    rightLayout->setContentsMargins(0, 0, 0, 0);
+    rightLayout->setSpacing(8);
+
+    auto* telemetryGroup = new QGroupBox(
+        QStringLiteral("飞行实时可视化（俯仰/速度/高度/剩余航程）"),
+        rightPane);
+    auto* telemetryLayout = new QVBoxLayout(telemetryGroup);
+    telemetryLayout->setContentsMargins(8, 10, 8, 8);
+    m_telemetryWidget = new TelemetryPlotWidget(telemetryGroup);
+    telemetryLayout->addWidget(m_telemetryWidget);
+    telemetryGroup->setMinimumHeight(250);
+    telemetryGroup->setMaximumHeight(360);
+
+    auto* globeGroup = new QGroupBox(QStringLiteral("三维地球态势"), rightPane);
+    auto* globeLayout = new QVBoxLayout(globeGroup);
+    globeLayout->setContentsMargins(6, 10, 6, 6);
+    m_earthWidget = new OsgEarthWidget(globeGroup);
+    globeLayout->addWidget(m_earthWidget);
+
+    rightLayout->addWidget(telemetryGroup, 0);
+    rightLayout->addWidget(globeGroup, 1);
 
     rootLayout->addWidget(panel, 0);
-    rootLayout->addWidget(m_earthWidget, 1);
+    rootLayout->addWidget(rightPane, 1);
 
     setCentralWidget(central);
 
@@ -515,15 +600,7 @@ void MainWindow::buildUi() {
                               ? OsgEarthWidget::GlobeMode::Realistic
                               : OsgEarthWidget::GlobeMode::Presentation;
         m_earthWidget->setGlobeMode(mode);
-
-        const bool hasRealDataset = m_earthWidget->hasRealEarthDataset();
-        if (mode == OsgEarthWidget::GlobeMode::Presentation) {
-            m_sceneDataSourceValue->setText(QStringLiteral("演示简化模型"));
-        } else if (hasRealDataset) {
-            m_sceneDataSourceValue->setText(QStringLiteral("离线卫星/地形数据"));
-        } else {
-            m_sceneDataSourceValue->setText(QStringLiteral("程序化真实纹理（无离线地形）"));
-        }
+        refreshSceneDataSourceLabel();
     });
 
     connect(m_missileTypeCombo, &QComboBox::currentTextChanged, this, [this](const QString& text) {
@@ -539,7 +616,7 @@ void MainWindow::buildUi() {
         }
     });
 
-    m_globeModeCombo->setCurrentIndex(0);
+    refreshSceneDataSourceLabel();
 }
 
 osgEarth::GeoPoint MainWindow::makeGeoPoint(
@@ -586,5 +663,64 @@ void MainWindow::refreshMetrics(const mission::PlanMetrics& metrics) {
     m_etaValue->setText(QStringLiteral("--"));
     m_phaseValue->setText(QStringLiteral("待命"));
     m_currentSpeedValue->setText(QStringLiteral("0.0"));
+    resetTelemetryPanel();
+}
 
+void MainWindow::refreshSceneDataSourceLabel() {
+    if (m_sceneDataSourceValue == nullptr) {
+        return;
+    }
+
+    if (m_earthWidget == nullptr) {
+        m_sceneDataSourceValue->setText(QStringLiteral("地图控件未就绪"));
+        return;
+    }
+
+    m_sceneDataSourceValue->setText(m_earthWidget->realEarthStatusText());
+}
+
+void MainWindow::resetTelemetryPanel() {
+    m_hasTelemetryPrevPoint = false;
+    m_prevTelemetrySpeed = 0.0;
+    m_prevTelemetryTime = 0.0;
+
+    if (m_telemetryWidget != nullptr) {
+        m_telemetryWidget->clearHistory();
+    }
+}
+
+void MainWindow::updateTelemetryPanel(
+    const osgEarth::GeoPoint& missilePoint,
+    const mission::MissileSim::State& simState,
+    double realDeltaSeconds) {
+    if (m_telemetryWidget == nullptr || !missilePoint.isValid()) {
+        return;
+    }
+
+    double heading = 0.0;
+    double pitch = 0.0;
+    if (m_hasTelemetryPrevPoint && m_prevTelemetryPoint.isValid()) {
+        heading = headingDegrees(m_prevTelemetryPoint, missilePoint);
+        pitch = pitchDegrees(m_prevTelemetryPoint, missilePoint);
+    }
+
+    const double safeDelta = std::max(0.001, realDeltaSeconds);
+    const double accel = (simState.currentSpeedMetersPerSecond - m_prevTelemetrySpeed) / safeDelta;
+    const double remaining = std::max(0.0, simState.totalMeters - simState.traveledMeters);
+
+    TelemetryPlotWidget::Sample sample;
+    sample.timeSeconds = simState.elapsedSeconds;
+    sample.speedMetersPerSecond = simState.currentSpeedMetersPerSecond;
+    sample.altitudeMeters = missilePoint.z();
+    sample.pitchDegrees = pitch;
+    sample.headingDegrees = heading;
+    sample.remainingMeters = remaining;
+    sample.accelerationMetersPerSecond2 = m_hasTelemetryPrevPoint ? accel : 0.0;
+    sample.phaseText = phaseToText(simState.phase);
+    m_telemetryWidget->pushSample(sample);
+
+    m_prevTelemetryPoint = missilePoint;
+    m_hasTelemetryPrevPoint = true;
+    m_prevTelemetrySpeed = simState.currentSpeedMetersPerSecond;
+    m_prevTelemetryTime = simState.elapsedSeconds;
 }

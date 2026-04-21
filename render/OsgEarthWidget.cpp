@@ -14,7 +14,6 @@
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QKeyEvent>
-#include <QToolButton>
 #include <QTimer>
 #include <QFileInfo>
 
@@ -281,14 +280,18 @@ osg::ref_ptr<osg::Geode> buildStarFieldGeode() {
     return starsGeode;
 }
 
-osg::ref_ptr<osg::Node> tryLoadEarthFile() {
-    const std::array<std::string, 6> candidates = {
+osg::ref_ptr<osg::Node> tryLoadEarthFile(std::string* outLoadedPath) {
+    const std::array<std::string, 10> candidates = {
         "default.earth",
         "world.earth",
         "data/default.earth",
         "data/world.earth",
+        "data/earth/default.earth",
+        "data/earth/world.earth",
         "resources/default.earth",
-        "resources/world.earth"};
+        "resources/world.earth",
+        "resources/earth/default.earth",
+        "resources/earth/world.earth"};
 
     for (const auto& fileName : candidates) {
         if (!QFileInfo::exists(QString::fromStdString(fileName))) {
@@ -296,6 +299,9 @@ osg::ref_ptr<osg::Node> tryLoadEarthFile() {
         }
         osg::ref_ptr<osg::Node> node = osgDB::readRefNodeFile(fileName);
         if (node.valid()) {
+            if (outLoadedPath != nullptr) {
+                *outLoadedPath = fileName;
+            }
             return node;
         }
     }
@@ -355,28 +361,6 @@ OsgEarthWidget::~OsgEarthWidget() {
     }
 }
 
-void OsgEarthWidget::updateZoomButtonLayout() {
-    if (m_zoomInButton == nullptr || m_zoomOutButton == nullptr) {
-        return;
-    }
-
-    const int buttonSize = 32;
-    const int margin = 14;
-    const int gap = 8;
-    const int x = std::max(0, width() - margin - buttonSize);
-    const int yBottom = std::max(0, height() - margin - buttonSize);
-
-    if (m_zoomOutButton != nullptr) {
-        m_zoomOutButton->setGeometry(x, yBottom, buttonSize, buttonSize);
-        m_zoomOutButton->raise();
-    }
-
-    if (m_zoomInButton != nullptr) {
-        m_zoomInButton->setGeometry(x, std::max(0, yBottom - buttonSize - gap), buttonSize, buttonSize);
-        m_zoomInButton->raise();
-    }
-}
-
 void OsgEarthWidget::zoomBySteps(int steps) {
     if (!m_graphicsWindow.valid() || steps == 0) {
         return;
@@ -405,6 +389,25 @@ OsgEarthWidget::GlobeMode OsgEarthWidget::globeMode() const {
 bool OsgEarthWidget::hasRealEarthDataset() {
     ensureSceneCreated();
     return m_hasRealEarthDataset;
+}
+
+QString OsgEarthWidget::realEarthStatusText() const {
+    if (m_globeMode == GlobeMode::Presentation) {
+        return QStringLiteral("演示简化模型");
+    }
+
+    if (!m_sceneCreationAttempted && !m_root.valid()) {
+        return QStringLiteral("待检测（运行后加载）");
+    }
+
+    if (m_hasRealEarthDataset) {
+        if (m_realEarthFromLocalFile && !m_realEarthSourcePath.isEmpty()) {
+            return QStringLiteral("离线卫星数据：%1").arg(m_realEarthSourcePath);
+        }
+        return QStringLiteral("在线卫星影像+在线地形");
+    }
+
+    return QStringLiteral("程序化真实纹理（未检测到可用地形引擎）");
 }
 
 void OsgEarthWidget::setStartPoint(const osgEarth::GeoPoint& point) {
@@ -625,8 +628,6 @@ void OsgEarthWidget::paintEvent(QPaintEvent* event) {
 
 void OsgEarthWidget::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
-
-    updateZoomButtonLayout();
     syncGraphicsWindowSize();
 }
 
@@ -635,7 +636,6 @@ void OsgEarthWidget::showEvent(QShowEvent* event) {
     QTimer::singleShot(0, this, [this]() {
         initializeViewer();
         syncGraphicsWindowSize();
-        updateZoomButtonLayout();
     });
     setFocus(Qt::OtherFocusReason);
 }
@@ -823,17 +823,26 @@ void OsgEarthWidget::ensureSceneCreated() {
         return;
     }
 
+    m_sceneCreationAttempted = true;
+
     m_root = new osg::Group;
     m_realEarthGroup = new osg::Group;
     m_fallbackGroup = new osg::Group;
     m_hasRealEarthDataset = false;
+    m_realEarthFromLocalFile = false;
+    m_realEarthSourcePath.clear();
     m_mapNode = nullptr;
 
-    osg::ref_ptr<osg::Node> earthNode = tryLoadEarthFile();
+    std::string loadedEarthPath;
+    osg::ref_ptr<osg::Node> earthNode = tryLoadEarthFile(&loadedEarthPath);
     if (earthNode.valid()) {
         m_realEarthGroup->addChild(earthNode.get());
         m_mapNode = osgEarth::MapNode::findMapNode(earthNode.get());
         m_hasRealEarthDataset = m_mapNode.valid();
+        if (m_hasRealEarthDataset) {
+            m_realEarthFromLocalFile = true;
+            m_realEarthSourcePath = QString::fromStdString(loadedEarthPath);
+        }
     } else {
         osg::ref_ptr<osgEarth::MapNode> onlineMapNode;
         osg::ref_ptr<osg::Node> onlineEarth = buildOnlineRealEarthNode(onlineMapNode);
@@ -841,6 +850,7 @@ void OsgEarthWidget::ensureSceneCreated() {
             m_realEarthGroup->addChild(onlineEarth.get());
             m_mapNode = onlineMapNode;
             m_hasRealEarthDataset = true;
+            m_realEarthSourcePath = QStringLiteral("online-xyz");
         }
     }
 

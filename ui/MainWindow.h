@@ -19,6 +19,7 @@ class QCheckBox;
 class QComboBox;
 
 class OsgEarthWidget;
+class TelemetryPlotWidget;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -42,8 +43,15 @@ private:
         const QDoubleSpinBox* altSpin) const;
     void refreshThreatList();
     void refreshMetrics(const mission::PlanMetrics& metrics);
+    void refreshSceneDataSourceLabel();
+    void resetTelemetryPanel();
+    void updateTelemetryPanel(
+        const osgEarth::GeoPoint& missilePoint,
+        const mission::MissileSim::State& simState,
+        double realDeltaSeconds);
 
     OsgEarthWidget* m_earthWidget = nullptr;
+    TelemetryPlotWidget* m_telemetryWidget = nullptr;
 
     QDoubleSpinBox* m_startLon = nullptr;
     QDoubleSpinBox* m_startLat = nullptr;
@@ -83,6 +91,11 @@ private:
     QTimer m_simulationTimer;
     QElapsedTimer m_tickClock;
     qint64 m_lastTickMs = 0;
+
+    bool m_hasTelemetryPrevPoint = false;
+    osgEarth::GeoPoint m_prevTelemetryPoint;
+    double m_prevTelemetrySpeed = 0.0;
+    double m_prevTelemetryTime = 0.0;
 
     mission::RoutePlanner m_routePlanner;
     mission::MissileSim m_missileSim;

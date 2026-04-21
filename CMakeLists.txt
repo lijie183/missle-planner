@@ -27,7 +27,7 @@ find_package(osgEarth REQUIRED)
 # ===============================================
 
 # 收集项目中所有的源码文件
-file(GLOB_RECURSE SOURCES
+file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS
     "main.cpp"
     "ui/*.cpp" "ui/*.h" "ui/*.ui"
     "render/*.cpp" "render/*.h"

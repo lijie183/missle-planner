@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QString>
 #include <QWidget>
 
 #include <vector>
@@ -23,8 +24,6 @@ class Viewer;
 namespace osgGA {
 class TrackballManipulator;
 }
-
-class QToolButton;
 
 namespace osgEarth {
 class MapNode;
@@ -53,6 +52,7 @@ public:
     void setGlobeMode(GlobeMode mode);
     GlobeMode globeMode() const;
     bool hasRealEarthDataset();
+    QString realEarthStatusText() const;
 
     void setStartPoint(const osgEarth::GeoPoint& point);
     void setTargetPoint(const osgEarth::GeoPoint& point);
@@ -85,7 +85,6 @@ protected:
 private:
     void initializeViewer();
     void syncGraphicsWindowSize();
-    void updateZoomButtonLayout();
     void zoomBySteps(int steps);
     void ensureSceneCreated();
     void applyGlobeMode();
@@ -104,8 +103,6 @@ private:
     osg::ref_ptr<osgEarth::Util::EarthManipulator> m_earthManipulator;
     osg::ref_ptr<osgGA::TrackballManipulator> m_trackballManipulator;
 
-    QToolButton* m_zoomInButton = nullptr;
-    QToolButton* m_zoomOutButton = nullptr;
     int m_cachedViewportWidth = 0;
     int m_cachedViewportHeight = 0;
 
@@ -130,6 +127,9 @@ private:
     bool m_hasMissilePoint = false;
     bool m_followMissile = false;
     bool m_hasRealEarthDataset = false;
+    bool m_realEarthFromLocalFile = false;
+    bool m_sceneCreationAttempted = false;
+    QString m_realEarthSourcePath;
     GlobeMode m_globeMode = GlobeMode::Realistic;
     int m_followTickCounter = 0;
 
