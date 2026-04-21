@@ -1,6 +1,7 @@
 #include "ui/TelemetryPlotWidget.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 #include <QLinearGradient>
@@ -12,7 +13,57 @@
 
 namespace {
 
-constexpr std::size_t kMaxSamples = 420;
+constexpr std::size_t kMaxSamples = 600;
+
+enum class PlotKind {
+    AltitudeKm,
+    RemainingKm,
+    Speed,
+    Pitch,
+    Heading,
+    Acceleration
+};
+
+struct PlotConfig {
+    PlotKind kind;
+    QString title;
+    QString yAxisText;
+    QColor lineColor;
+};
+
+struct ValueRange {
+    double minValue = 0.0;
+    double maxValue = 1.0;
+};
+
+const std::array<PlotConfig, 6>& plotConfigs() {
+    static const std::array<PlotConfig, 6> configs = {
+        PlotConfig{PlotKind::AltitudeKm, QStringLiteral("1-时间(秒)-高度(千米)"), QStringLiteral("高度(千米)"), QColor(248, 194, 79)},
+        PlotConfig{PlotKind::RemainingKm, QStringLiteral("2-时间(秒)-弹目距离(千米)"), QStringLiteral("距离(千米)"), QColor(119, 234, 145)},
+        PlotConfig{PlotKind::Speed, QStringLiteral("3-时间(秒)-速度(米/秒)"), QStringLiteral("速度(米/秒)"), QColor(86, 214, 255)},
+        PlotConfig{PlotKind::Pitch, QStringLiteral("4-时间(秒)-发射系俯仰角(度)"), QStringLiteral("俯仰角(度)"), QColor(236, 121, 193)},
+        PlotConfig{PlotKind::Heading, QStringLiteral("5-时间(秒)-发射系航向角(度)"), QStringLiteral("航向角(度)"), QColor(166, 145, 245)},
+        PlotConfig{PlotKind::Acceleration, QStringLiteral("6-时间(秒)-加速度(米/秒²)"), QStringLiteral("加速度(米/秒²)"), QColor(255, 155, 105)}};
+    return configs;
+}
+
+double valueForSample(const TelemetryPlotWidget::Sample& sample, PlotKind kind) {
+    switch (kind) {
+        case PlotKind::AltitudeKm:
+            return sample.altitudeMeters / 1000.0;
+        case PlotKind::RemainingKm:
+            return sample.remainingMeters / 1000.0;
+        case PlotKind::Speed:
+            return sample.speedMetersPerSecond;
+        case PlotKind::Pitch:
+            return sample.pitchDegrees;
+        case PlotKind::Heading:
+            return sample.headingDegrees;
+        case PlotKind::Acceleration:
+        default:
+            return sample.accelerationMetersPerSecond2;
+    }
+}
 
 double safeRange(double minValue, double maxValue) {
     const double range = maxValue - minValue;
@@ -25,49 +76,183 @@ double clampToUnit(double value) {
 
 QPointF samplePoint(
     const QRectF& plotRect,
-    std::size_t index,
-    std::size_t count,
+    double tMin,
+    double tMax,
+    double timeValue,
     double value,
     double minValue,
     double maxValue) {
-    const double t = count > 1 ? static_cast<double>(index) / static_cast<double>(count - 1) : 0.0;
-    const double x = plotRect.left() + t * plotRect.width();
+    const double timeNormalized = clampToUnit((timeValue - tMin) / safeRange(tMin, tMax));
+    const double x = plotRect.left() + timeNormalized * plotRect.width();
     const double normalized = clampToUnit((value - minValue) / safeRange(minValue, maxValue));
     const double y = plotRect.bottom() - normalized * plotRect.height();
     return {x, y};
 }
 
-void drawLegend(QPainter& painter, const QRect& rect) {
-    struct LegendItem {
-        QColor color;
-        const char* text;
-    };
-
-    const LegendItem items[] = {
-        {QColor(64, 214, 255), "speed"},
-        {QColor(255, 205, 82), "altitude"},
-        {QColor(221, 130, 255), "pitch"},
-        {QColor(123, 242, 146), "remaining"}};
-
-    int x = rect.left();
-    const int y = rect.center().y();
-    for (const auto& item : items) {
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(item.color);
-        painter.drawRoundedRect(QRect(x, y - 5, 12, 10), 2, 2);
-
-        painter.setPen(QColor(212, 232, 250));
-        painter.drawText(x + 18, y + 5, QString::fromLatin1(item.text));
-
-        x += 112;
+ValueRange computeValueRange(const std::deque<TelemetryPlotWidget::Sample>& samples, PlotKind kind) {
+    ValueRange range;
+    if (samples.empty()) {
+        return range;
     }
+
+    range.minValue = valueForSample(samples.front(), kind);
+    range.maxValue = range.minValue;
+    for (const auto& sample : samples) {
+        const double value = valueForSample(sample, kind);
+        range.minValue = std::min(range.minValue, value);
+        range.maxValue = std::max(range.maxValue, value);
+    }
+
+    const double rangeSize = range.maxValue - range.minValue;
+    if (rangeSize < 1e-5) {
+        const double center = range.maxValue;
+        const double padding = std::max(1.0, std::abs(center) * 0.1);
+        range.minValue = center - padding;
+        range.maxValue = center + padding;
+        return range;
+    }
+
+    const double padding = rangeSize * 0.12;
+    range.minValue -= padding;
+    range.maxValue += padding;
+    return range;
+}
+
+QString tickText(double value) {
+    const double absValue = std::abs(value);
+    if (absValue >= 1000.0) {
+        return QString::number(value, 'f', 0);
+    }
+    if (absValue >= 100.0) {
+        return QString::number(value, 'f', 1);
+    }
+    return QString::number(value, 'f', 2);
+}
+
+void drawSubPlot(
+    QPainter& painter,
+    const QRect& outerRect,
+    const std::deque<TelemetryPlotWidget::Sample>& samples,
+    const PlotConfig& config) {
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(QColor(15, 28, 44));
+    painter.drawRoundedRect(outerRect.adjusted(0, 0, -1, -1), 4.0, 4.0);
+
+    painter.setPen(QColor(52, 79, 103));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawRoundedRect(outerRect.adjusted(0, 0, -1, -1), 4.0, 4.0);
+
+    painter.setPen(QColor(216, 233, 248));
+    painter.drawText(
+        outerRect.adjusted(8, 5, -6, -outerRect.height() + 22),
+        Qt::AlignLeft | Qt::AlignVCenter,
+        config.title);
+
+    const QRectF plotRect = outerRect.adjusted(54, 28, -12, -32);
+
+    painter.setPen(QColor(47, 72, 94));
+    for (int i = 0; i <= 4; ++i) {
+        const double ratio = static_cast<double>(i) / 4.0;
+        const double y = plotRect.top() + ratio * plotRect.height();
+        painter.drawLine(QPointF(plotRect.left(), y), QPointF(plotRect.right(), y));
+    }
+    for (int i = 0; i <= 4; ++i) {
+        const double ratio = static_cast<double>(i) / 4.0;
+        const double x = plotRect.left() + ratio * plotRect.width();
+        painter.drawLine(QPointF(x, plotRect.top()), QPointF(x, plotRect.bottom()));
+    }
+
+    painter.setPen(QColor(112, 145, 173));
+    painter.drawLine(QPointF(plotRect.left(), plotRect.bottom()), QPointF(plotRect.right(), plotRect.bottom()));
+    painter.drawLine(QPointF(plotRect.left(), plotRect.top()), QPointF(plotRect.left(), plotRect.bottom()));
+
+    if (samples.empty()) {
+        painter.setPen(QColor(132, 169, 197));
+        painter.drawText(plotRect.toRect(), Qt::AlignCenter, QStringLiteral("等待推演数据..."));
+        return;
+    }
+
+    const double tMin = samples.front().timeSeconds;
+    const double tMax = std::max(samples.back().timeSeconds, tMin + 1.0);
+    const ValueRange yRange = computeValueRange(samples, config.kind);
+
+    painter.setPen(QColor(176, 198, 220));
+    painter.drawText(
+        outerRect.adjusted(6, 28, -outerRect.width() + 48, -12),
+        Qt::AlignTop | Qt::AlignLeft,
+        config.yAxisText);
+    painter.drawText(
+        QRectF(plotRect.left(), plotRect.bottom() + 10.0, plotRect.width(), 16.0),
+        Qt::AlignCenter,
+        QStringLiteral("时间(秒)"));
+
+    for (int i = 0; i <= 4; ++i) {
+        const double ratio = static_cast<double>(i) / 4.0;
+        const double yValue = yRange.maxValue - ratio * (yRange.maxValue - yRange.minValue);
+        const double y = plotRect.top() + ratio * plotRect.height();
+        const QRectF labelRect(outerRect.left() + 4.0, y - 8.0, 46.0, 16.0);
+        painter.drawText(labelRect, Qt::AlignRight | Qt::AlignVCenter, tickText(yValue));
+    }
+
+    for (int i = 0; i <= 4; ++i) {
+        const double ratio = static_cast<double>(i) / 4.0;
+        const double x = plotRect.left() + ratio * plotRect.width();
+        const double xValue = tMin + ratio * (tMax - tMin);
+        const QRectF labelRect(x - 20.0, plotRect.bottom() + 1.0, 40.0, 14.0);
+        painter.drawText(labelRect, Qt::AlignHCenter | Qt::AlignTop, QString::number(xValue, 'f', 0));
+    }
+
+    if (samples.size() < 2) {
+        const auto& latest = samples.back();
+        const QPointF pt = samplePoint(
+            plotRect,
+            tMin,
+            tMax,
+            latest.timeSeconds,
+            valueForSample(latest, config.kind),
+            yRange.minValue,
+            yRange.maxValue);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(config.lineColor);
+        painter.drawEllipse(pt, 3.0, 3.0);
+    } else {
+        QPainterPath path;
+        for (std::size_t i = 0; i < samples.size(); ++i) {
+            const auto& sample = samples[i];
+            const QPointF point = samplePoint(
+                plotRect,
+                tMin,
+                tMax,
+                sample.timeSeconds,
+                valueForSample(sample, config.kind),
+                yRange.minValue,
+                yRange.maxValue);
+            if (i == 0) {
+                path.moveTo(point);
+            } else {
+                path.lineTo(point);
+            }
+        }
+
+        painter.setPen(QPen(config.lineColor, 1.9));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawPath(path);
+    }
+
+    const auto& latest = samples.back();
+    const QString latestText = QStringLiteral("当前: %1").arg(tickText(valueForSample(latest, config.kind)));
+    painter.setPen(QColor(198, 220, 240));
+    painter.drawText(
+        outerRect.adjusted(outerRect.width() / 2, 5, -8, -outerRect.height() + 22),
+        Qt::AlignRight | Qt::AlignVCenter,
+        latestText);
 }
 
 }  // namespace
 
 TelemetryPlotWidget::TelemetryPlotWidget(QWidget* parent)
     : QWidget(parent) {
-    setMinimumHeight(220);
+    setMinimumHeight(330);
     setAutoFillBackground(false);
 }
 
@@ -95,102 +280,25 @@ void TelemetryPlotWidget::paintEvent(QPaintEvent* event) {
     bg.setColorAt(1.0, QColor(9, 20, 32));
     painter.fillRect(rect(), bg);
 
-    painter.setPen(QColor(46, 76, 102));
+    painter.setPen(QColor(38, 61, 84));
     painter.drawRoundedRect(rect().adjusted(0, 0, -1, -1), 6.0, 6.0);
 
-    const QRect legendRect = rect().adjusted(14, 8, -14, -8);
-    drawLegend(painter, QRect(legendRect.left(), legendRect.top(), legendRect.width(), 18));
+    const QRect contentRect = rect().adjusted(8, 8, -8, -8);
+    constexpr int rows = 2;
+    constexpr int cols = 3;
+    constexpr int spacingX = 8;
+    constexpr int spacingY = 8;
 
-    const QRectF plotRect = rect().adjusted(14, 30, -14, -56);
-    painter.setPen(QColor(40, 67, 90));
-    for (int i = 0; i <= 4; ++i) {
-        const double y = plotRect.top() + plotRect.height() * static_cast<double>(i) / 4.0;
-        painter.drawLine(QPointF(plotRect.left(), y), QPointF(plotRect.right(), y));
+    const int cellWidth = (contentRect.width() - spacingX * (cols - 1)) / cols;
+    const int cellHeight = (contentRect.height() - spacingY * (rows - 1)) / rows;
+
+    const auto& configs = plotConfigs();
+    for (int index = 0; index < static_cast<int>(configs.size()); ++index) {
+        const int row = index / cols;
+        const int col = index % cols;
+        const int x = contentRect.left() + col * (cellWidth + spacingX);
+        const int y = contentRect.top() + row * (cellHeight + spacingY);
+        const QRect cellRect(x, y, cellWidth, cellHeight);
+        drawSubPlot(painter, cellRect, m_samples, configs[static_cast<std::size_t>(index)]);
     }
-    for (int i = 0; i <= 6; ++i) {
-        const double x = plotRect.left() + plotRect.width() * static_cast<double>(i) / 6.0;
-        painter.drawLine(QPointF(x, plotRect.top()), QPointF(x, plotRect.bottom()));
-    }
-
-    if (m_samples.size() < 2) {
-        painter.setPen(QColor(142, 182, 212));
-        painter.drawText(plotRect.toRect(), Qt::AlignCenter, QStringLiteral("等待推演数据..."));
-        return;
-    }
-
-    double speedMin = m_samples.front().speedMetersPerSecond;
-    double speedMax = speedMin;
-    double altitudeMin = m_samples.front().altitudeMeters;
-    double altitudeMax = altitudeMin;
-    double pitchMin = m_samples.front().pitchDegrees;
-    double pitchMax = pitchMin;
-    double remainMin = m_samples.front().remainingMeters;
-    double remainMax = remainMin;
-
-    for (const auto& sample : m_samples) {
-        speedMin = std::min(speedMin, sample.speedMetersPerSecond);
-        speedMax = std::max(speedMax, sample.speedMetersPerSecond);
-        altitudeMin = std::min(altitudeMin, sample.altitudeMeters);
-        altitudeMax = std::max(altitudeMax, sample.altitudeMeters);
-        pitchMin = std::min(pitchMin, sample.pitchDegrees);
-        pitchMax = std::max(pitchMax, sample.pitchDegrees);
-        remainMin = std::min(remainMin, sample.remainingMeters);
-        remainMax = std::max(remainMax, sample.remainingMeters);
-    }
-
-    QPainterPath speedPath;
-    QPainterPath altitudePath;
-    QPainterPath pitchPath;
-    QPainterPath remainPath;
-
-    for (std::size_t i = 0; i < m_samples.size(); ++i) {
-        const auto& sample = m_samples[i];
-
-        const QPointF pSpeed = samplePoint(plotRect, i, m_samples.size(), sample.speedMetersPerSecond, speedMin, speedMax);
-        const QPointF pAlt = samplePoint(plotRect, i, m_samples.size(), sample.altitudeMeters, altitudeMin, altitudeMax);
-        const QPointF pPitch = samplePoint(plotRect, i, m_samples.size(), sample.pitchDegrees, pitchMin, pitchMax);
-        const QPointF pRemain = samplePoint(plotRect, i, m_samples.size(), sample.remainingMeters, remainMin, remainMax);
-
-        if (i == 0) {
-            speedPath.moveTo(pSpeed);
-            altitudePath.moveTo(pAlt);
-            pitchPath.moveTo(pPitch);
-            remainPath.moveTo(pRemain);
-        } else {
-            speedPath.lineTo(pSpeed);
-            altitudePath.lineTo(pAlt);
-            pitchPath.lineTo(pPitch);
-            remainPath.lineTo(pRemain);
-        }
-    }
-
-    painter.setBrush(Qt::NoBrush);
-
-    painter.setPen(QPen(QColor(64, 214, 255), 2.0));
-    painter.drawPath(speedPath);
-
-    painter.setPen(QPen(QColor(255, 205, 82), 1.8));
-    painter.drawPath(altitudePath);
-
-    painter.setPen(QPen(QColor(221, 130, 255), 1.6));
-    painter.drawPath(pitchPath);
-
-    painter.setPen(QPen(QColor(123, 242, 146), 1.6));
-    painter.drawPath(remainPath);
-
-    const Sample& latest = m_samples.back();
-    const QRect bottomRect = rect().adjusted(14, height() - 48, -14, -10);
-
-    painter.setPen(QColor(220, 238, 252));
-    const QString text = QStringLiteral(
-                             "T=%1s   V=%2m/s   ALT=%3m   pitch=%4deg   heading=%5deg   a=%6m/s2   remain=%7km   phase=%8")
-                             .arg(latest.timeSeconds, 0, 'f', 1)
-                             .arg(latest.speedMetersPerSecond, 0, 'f', 1)
-                             .arg(latest.altitudeMeters, 0, 'f', 0)
-                             .arg(latest.pitchDegrees, 0, 'f', 1)
-                             .arg(latest.headingDegrees, 0, 'f', 1)
-                             .arg(latest.accelerationMetersPerSecond2, 0, 'f', 2)
-                             .arg(latest.remainingMeters / 1000.0, 0, 'f', 2)
-                             .arg(latest.phaseText);
-    painter.drawText(bottomRect, Qt::AlignLeft | Qt::AlignVCenter, text);
 }

@@ -16,7 +16,6 @@ public:
         double headingDegrees = 0.0;
         double remainingMeters = 0.0;
         double accelerationMetersPerSecond2 = 0.0;
-        QString phaseText;
     };
 
     explicit TelemetryPlotWidget(QWidget* parent = nullptr);

@@ -553,14 +553,14 @@ void MainWindow::buildUi() {
     rightLayout->setSpacing(8);
 
     auto* telemetryGroup = new QGroupBox(
-        QStringLiteral("飞行实时可视化（俯仰/速度/高度/剩余航程）"),
+        QStringLiteral("飞行实时可视化（六图分离：高度/弹目距/速度/俯仰/航向/加速度）"),
         rightPane);
     auto* telemetryLayout = new QVBoxLayout(telemetryGroup);
     telemetryLayout->setContentsMargins(8, 10, 8, 8);
     m_telemetryWidget = new TelemetryPlotWidget(telemetryGroup);
     telemetryLayout->addWidget(m_telemetryWidget);
-    telemetryGroup->setMinimumHeight(250);
-    telemetryGroup->setMaximumHeight(360);
+    telemetryGroup->setMinimumHeight(360);
+    telemetryGroup->setMaximumHeight(460);
 
     auto* globeGroup = new QGroupBox(QStringLiteral("三维地球态势"), rightPane);
     auto* globeLayout = new QVBoxLayout(globeGroup);
@@ -682,7 +682,6 @@ void MainWindow::refreshSceneDataSourceLabel() {
 void MainWindow::resetTelemetryPanel() {
     m_hasTelemetryPrevPoint = false;
     m_prevTelemetrySpeed = 0.0;
-    m_prevTelemetryTime = 0.0;
 
     if (m_telemetryWidget != nullptr) {
         m_telemetryWidget->clearHistory();
@@ -716,11 +715,9 @@ void MainWindow::updateTelemetryPanel(
     sample.headingDegrees = heading;
     sample.remainingMeters = remaining;
     sample.accelerationMetersPerSecond2 = m_hasTelemetryPrevPoint ? accel : 0.0;
-    sample.phaseText = phaseToText(simState.phase);
     m_telemetryWidget->pushSample(sample);
 
     m_prevTelemetryPoint = missilePoint;
     m_hasTelemetryPrevPoint = true;
     m_prevTelemetrySpeed = simState.currentSpeedMetersPerSecond;
-    m_prevTelemetryTime = simState.elapsedSeconds;
 }

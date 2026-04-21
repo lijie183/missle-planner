@@ -95,7 +95,6 @@ private:
     bool m_hasTelemetryPrevPoint = false;
     osgEarth::GeoPoint m_prevTelemetryPoint;
     double m_prevTelemetrySpeed = 0.0;
-    double m_prevTelemetryTime = 0.0;
 
     mission::RoutePlanner m_routePlanner;
     mission::MissileSim m_missileSim;
