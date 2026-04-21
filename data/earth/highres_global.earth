@@ -1,0 +1,27 @@
+<map name="HighResGlobal" type="geocentric" version="2">
+  <image name="ReadyMap_Imagery" driver="tms">
+    <url>http://readymap.org/readymap/tiles/1.0.0/7/</url>
+    <cache_policy>
+      <mode>read_write</mode>
+    </cache_policy>
+  </image>
+
+  <elevation name="ReadyMap_DEM" driver="tms">
+    <url>http://readymap.org/readymap/tiles/1.0.0/116/</url>
+    <vdatum>egm96</vdatum>
+  </elevation>
+
+  <image name="Boundaries" driver="xyz">
+    <url>https://tile.openstreetmap.org/{z}/{x}/{y}.png</url>
+    <profile>spherical-mercator</profile>
+    <opacity>0.3</opacity>
+  </image>
+
+  <options>
+    <cache type="filesystem">
+      <path>./osgearth_cache</path>
+    </cache>
+    <lighting>true</lighting>
+    <splatting>true</splatting>
+  </options>
+</map>

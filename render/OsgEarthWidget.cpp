@@ -281,15 +281,20 @@ osg::ref_ptr<osg::Geode> buildStarFieldGeode() {
 }
 
 osg::ref_ptr<osg::Node> tryLoadEarthFile(std::string* outLoadedPath) {
-    const std::array<std::string, 10> candidates = {
+    const std::array<std::string, 15> candidates = {
+        "highres_global.earth",
         "default.earth",
         "world.earth",
+        "data/highres_global.earth",
         "data/default.earth",
         "data/world.earth",
+        "data/earth/highres_global.earth",
         "data/earth/default.earth",
         "data/earth/world.earth",
+        "resources/highres_global.earth",
         "resources/default.earth",
         "resources/world.earth",
+        "resources/earth/highres_global.earth",
         "resources/earth/default.earth",
         "resources/earth/world.earth"};
 

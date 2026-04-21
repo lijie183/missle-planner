@@ -372,8 +372,8 @@ void MainWindow::buildUi() {
     m_sceneDataSourceValue = new QLabel(QStringLiteral("待检测（运行后加载）"), sceneGroup);
     auto* offlineHint = new QLabel(
         QStringLiteral("离线数据推荐路径:\n"
-                       "data/earth/world.earth\n"
-                       "可选: resources/world.earth / default.earth"),
+                       "data/earth/highres_global.earth\n"
+                       "可选: data/earth/world.earth / resources/world.earth / default.earth"),
         sceneGroup);
     offlineHint->setWordWrap(true);
     offlineHint->setStyleSheet(QStringLiteral("color: #8fb8dd;"));
