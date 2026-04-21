@@ -101,13 +101,7 @@ int scaledPixels(int logicalPixels, double dpr) {
 }
 
 osg::ref_ptr<osg::Node> buildOnlineRealEarthNode(osg::ref_ptr<osgEarth::MapNode>& outMapNode) {
-    const osgEarth::Profile* mercatorProfile = osgEarth::Profile::create(osgEarth::Profile::SPHERICAL_MERCATOR);
-    if (mercatorProfile == nullptr) {
-        return {};
-    }
-
     osg::ref_ptr<osgEarth::Map> map = new osgEarth::Map;
-    map->setProfile(mercatorProfile);
 
     osgEarth::XYZImageLayer::Options imageryOptions;
     imageryOptions.url() = osgEarth::URI(
@@ -118,12 +112,11 @@ osg::ref_ptr<osg::Node> buildOnlineRealEarthNode(osg::ref_ptr<osgEarth::MapNode>
 
     osg::ref_ptr<osgEarth::XYZImageLayer> imageryLayer = new osgEarth::XYZImageLayer(imageryOptions);
     imageryLayer->setName("SatelliteImagery");
-    imageryLayer->setProfile(mercatorProfile);
     map->addLayer(imageryLayer.get());
 
     osgEarth::XYZElevationLayer::Options elevationOptions;
     elevationOptions.url() = osgEarth::URI(
-        "https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{z}/{x}/{y}.png");
+        "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png");
     elevationOptions.format() = std::string("png");
     elevationOptions.minLevel() = 0u;
     elevationOptions.maxLevel() = 13u;
@@ -132,7 +125,6 @@ osg::ref_ptr<osg::Node> buildOnlineRealEarthNode(osg::ref_ptr<osgEarth::MapNode>
 
     osg::ref_ptr<osgEarth::XYZElevationLayer> elevationLayer = new osgEarth::XYZElevationLayer(elevationOptions);
     elevationLayer->setName("GlobalTerrain");
-    elevationLayer->setProfile(mercatorProfile);
     map->addLayer(elevationLayer.get());
 
     outMapNode = new osgEarth::MapNode(map.get());

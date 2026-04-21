@@ -1,27 +1,25 @@
-<map name="HighResGlobal" type="geocentric" version="2">
-  <image name="ReadyMap_Imagery" driver="tms">
-    <url>http://readymap.org/readymap/tiles/1.0.0/7/</url>
-    <cache_policy>
-      <mode>read_write</mode>
-    </cache_policy>
+<map name="OfflineGlobal" type="geocentric" version="2">
+
+  <!-- 1. 离线全球纹理（你下载的 Natural Earth 数据） -->
+  <image name="OfflineEarthTexture" driver="gdal">
+    <url>data/earth/HYP_50M_SR_W.tif</url>
+    <wrap>true</wrap>
   </image>
 
-  <elevation name="ReadyMap_DEM" driver="tms">
-    <url>http://readymap.org/readymap/tiles/1.0.0/116/</url>
-    <vdatum>egm96</vdatum>
-  </elevation>
-
-  <image name="Boundaries" driver="xyz">
-    <url>https://tile.openstreetmap.org/{z}/{x}/{y}.png</url>
-    <profile>spherical-mercator</profile>
-    <opacity>0.3</opacity>
-  </image>
-
+  <!-- 2. 地形光照（让纹理的浮雕效果更立体） -->
   <options>
-    <cache type="filesystem">
-      <path>./osgearth_cache</path>
-    </cache>
     <lighting>true</lighting>
-    <splatting>true</splatting>
+    <terrain skirt_ratio="0.1"/>
+    <cache type="filesystem">
+      <path>data/earth/cache</path>
+    </cache>
   </options>
+
+  <!-- 3. 大气光晕效果 -->
+  <extension name="sky" type="sky">
+    <atmosphere>true</atmosphere>
+    <sun>true</sun>
+    <stars>true</stars>
+  </extension>
+
 </map>
