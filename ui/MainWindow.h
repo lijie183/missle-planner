@@ -12,7 +12,6 @@
 
 #include "core/MissionTypes.h"
 #include "core/MultiMissilePlanner.h"
-#include "core/RoutePlanner.h"
 #include "sim/MissileSim.h"
 
 class QLabel;
