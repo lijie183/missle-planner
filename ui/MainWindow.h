@@ -48,9 +48,11 @@ public:
 
 private slots:
     void onAddMissile();
+    void onUpdateMissile();
     void onRemoveMissile();
     void onMissileSelectionChanged();
     void onAddTarget();
+    void onUpdateTarget();
     void onRemoveTarget();
     void onTargetSelectionChanged();
     void onAddThreat();
@@ -117,7 +119,6 @@ private:
     QDoubleSpinBox* m_timeScaleSpin = nullptr;
     QCheckBox* m_followMissileCheck = nullptr;
     QComboBox* m_globeModeCombo = nullptr;
-    QComboBox* m_telemetryMissileCombo = nullptr;
 
     QListWidget* m_threatList = nullptr;
     QTableWidget* m_assignmentTable = nullptr;

@@ -132,52 +132,25 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&m_simulationTimer, &QTimer::timeout, this, &MainWindow::onSimulationTick);
     m_simulationTimer.setInterval(16);
 
-    mission::MissileConfig defaultMissile;
-    defaultMissile.id = "M1";
-    defaultMissile.name = "导弹-1";
-    defaultMissile.startLonDeg = 112.35;
-    defaultMissile.startLatDeg = 34.70;
-    defaultMissile.startAltMeters = 1200.0;
-    defaultMissile.missileType = 0;
-    defaultMissile.speedMps = 250.0;
-    m_missileConfigs.push_back(defaultMissile);
-    m_nextMissileId = 2;
-
-    mission::TargetConfig defaultTarget;
-    defaultTarget.id = "T1";
-    defaultTarget.name = "目标-1";
-    defaultTarget.lonDeg = 113.30;
-    defaultTarget.latDeg = 35.15;
-    defaultTarget.altMeters = 1600.0;
-    defaultTarget.priority = 5;
-    m_targetConfigs.push_back(defaultTarget);
-    m_nextTargetId = 2;
+    m_nextMissileId = 1;
+    m_nextTargetId = 1;
 
     refreshMissileList();
     refreshTargetList();
     syncEarthWidgetFromConfig();
 
-    if (m_missileList->count() > 0) {
-        m_missileList->setCurrentRow(0);
-    }
-    if (m_targetList->count() > 0) {
-        m_targetList->setCurrentRow(0);
-    }
-
     statusBar()->showMessage(QStringLiteral("系统就绪：请配置导弹与目标参数后执行多导弹规划。"));
 }
 
 void MainWindow::onAddMissile() {
-    saveCurrentMissileParams();
-
     mission::MissileConfig cfg;
     cfg.id = QString("M%1").arg(m_nextMissileId).toStdString();
     cfg.name = QString("导弹-%1").arg(m_nextMissileId).toStdString();
-    cfg.startLonDeg = 112.35 + (m_nextMissileId - 1) * 0.12;
-    cfg.startLatDeg = 34.70 + (m_nextMissileId - 1) * 0.05;
-    cfg.startAltMeters = 1200.0;
-    cfg.missileType = 0;
-    cfg.speedMps = 250.0;
+    cfg.startLonDeg = m_missileLon->value();
+    cfg.startLatDeg = m_missileLat->value();
+    cfg.startAltMeters = m_missileAlt->value();
+    cfg.missileType = m_missileTypeCombo->currentIndex();
+    cfg.speedMps = m_missileSpeedSpin->value();
     ++m_nextMissileId;
 
     m_missileConfigs.push_back(cfg);
@@ -187,13 +160,27 @@ void MainWindow::onAddMissile() {
     statusBar()->showMessage(QStringLiteral("已添加导弹。"), 2000);
 }
 
-void MainWindow::onRemoveMissile() {
-    if (m_selectedMissileIndex < 0 || m_selectedMissileIndex >= static_cast<int>(m_missileConfigs.size())) {
+void MainWindow::onUpdateMissile() {
+    const int currentIdx = m_missileList->currentRow();
+    if (currentIdx < 0 || currentIdx >= static_cast<int>(m_missileConfigs.size())) {
+        QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("请先选中要修改的导弹。"));
         return;
     }
 
-    m_missileConfigs.erase(m_missileConfigs.begin() + m_selectedMissileIndex);
-    m_selectedMissileIndex = -1;
+    m_selectedMissileIndex = currentIdx;
+    saveCurrentMissileParams();
+    refreshMissileList();
+    m_missileList->setCurrentRow(currentIdx);
+    statusBar()->showMessage(QStringLiteral("已更新导弹参数。"), 2000);
+}
+
+void MainWindow::onRemoveMissile() {
+    const int currentIdx = m_missileList->currentRow();
+    if (currentIdx < 0 || currentIdx >= static_cast<int>(m_missileConfigs.size())) {
+        return;
+    }
+
+    m_missileConfigs.erase(m_missileConfigs.begin() + currentIdx);
     refreshMissileList();
     syncEarthWidgetFromConfig();
     statusBar()->showMessage(QStringLiteral("已移除导弹。"), 2000);
@@ -210,15 +197,13 @@ void MainWindow::onMissileSelectionChanged() {
 }
 
 void MainWindow::onAddTarget() {
-    saveCurrentTargetParams();
-
     mission::TargetConfig cfg;
     cfg.id = QString("T%1").arg(m_nextTargetId).toStdString();
     cfg.name = QString("目标-%1").arg(m_nextTargetId).toStdString();
-    cfg.lonDeg = 113.30 + (m_nextTargetId - 1) * 0.10;
-    cfg.latDeg = 35.15 + (m_nextTargetId - 1) * 0.06;
-    cfg.altMeters = 1600.0;
-    cfg.priority = 5;
+    cfg.lonDeg = m_targetLon->value();
+    cfg.latDeg = m_targetLat->value();
+    cfg.altMeters = m_targetAlt->value();
+    cfg.priority = static_cast<int>(m_targetPrioritySpin->value());
     ++m_nextTargetId;
 
     m_targetConfigs.push_back(cfg);
@@ -228,13 +213,27 @@ void MainWindow::onAddTarget() {
     statusBar()->showMessage(QStringLiteral("已添加目标。"), 2000);
 }
 
-void MainWindow::onRemoveTarget() {
-    if (m_selectedTargetIndex < 0 || m_selectedTargetIndex >= static_cast<int>(m_targetConfigs.size())) {
+void MainWindow::onUpdateTarget() {
+    const int currentIdx = m_targetList->currentRow();
+    if (currentIdx < 0 || currentIdx >= static_cast<int>(m_targetConfigs.size())) {
+        QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("请先选中要修改的目标。"));
         return;
     }
 
-    m_targetConfigs.erase(m_targetConfigs.begin() + m_selectedTargetIndex);
-    m_selectedTargetIndex = -1;
+    m_selectedTargetIndex = currentIdx;
+    saveCurrentTargetParams();
+    refreshTargetList();
+    m_targetList->setCurrentRow(currentIdx);
+    statusBar()->showMessage(QStringLiteral("已更新目标参数。"), 2000);
+}
+
+void MainWindow::onRemoveTarget() {
+    const int currentIdx = m_targetList->currentRow();
+    if (currentIdx < 0 || currentIdx >= static_cast<int>(m_targetConfigs.size())) {
+        return;
+    }
+
+    m_targetConfigs.erase(m_targetConfigs.begin() + currentIdx);
     refreshTargetList();
     syncEarthWidgetFromConfig();
     statusBar()->showMessage(QStringLiteral("已移除目标。"), 2000);
@@ -742,11 +741,14 @@ void MainWindow::buildUi() {
     m_missileList = new QListWidget(missileGroup);
     m_missileList->setMaximumHeight(80);
     auto* missileAddBtn = new QPushButton(QStringLiteral("+"), missileGroup);
-    missileAddBtn->setMaximumWidth(36);
+    missileAddBtn->setMinimumWidth(50);
     auto* missileRemoveBtn = new QPushButton(QStringLiteral("-"), missileGroup);
-    missileRemoveBtn->setMaximumWidth(36);
+    missileRemoveBtn->setMinimumWidth(50);
+    auto* missileModifyBtn = new QPushButton(QStringLiteral("修改"), missileGroup);
+    missileModifyBtn->setMinimumWidth(50);
     auto* missileBtnCol = new QVBoxLayout;
     missileBtnCol->addWidget(missileAddBtn);
+    missileBtnCol->addWidget(missileModifyBtn);
     missileBtnCol->addWidget(missileRemoveBtn);
     missileBtnCol->addStretch();
     missileListRow->addWidget(m_missileList, 1);
@@ -786,11 +788,14 @@ void MainWindow::buildUi() {
     m_targetList = new QListWidget(targetGroup);
     m_targetList->setMaximumHeight(80);
     auto* targetAddBtn = new QPushButton(QStringLiteral("+"), targetGroup);
-    targetAddBtn->setMaximumWidth(36);
+    targetAddBtn->setMinimumWidth(50);
     auto* targetRemoveBtn = new QPushButton(QStringLiteral("-"), targetGroup);
-    targetRemoveBtn->setMaximumWidth(36);
+    targetRemoveBtn->setMinimumWidth(50);
+    auto* targetModifyBtn = new QPushButton(QStringLiteral("修改"), targetGroup);
+    targetModifyBtn->setMinimumWidth(50);
     auto* targetBtnCol = new QVBoxLayout;
     targetBtnCol->addWidget(targetAddBtn);
+    targetBtnCol->addWidget(targetModifyBtn);
     targetBtnCol->addWidget(targetRemoveBtn);
     targetBtnCol->addStretch();
     targetListRow->addWidget(m_targetList, 1);
@@ -997,14 +1002,6 @@ void MainWindow::buildUi() {
     auto* telemetryLayout = new QVBoxLayout(telemetryGroup);
     telemetryLayout->setContentsMargins(8, 10, 8, 8);
 
-    auto* telemetrySelectorRow = new QHBoxLayout;
-    auto* telemetryLabel = new QLabel(QStringLiteral("选择导弹:"), telemetryGroup);
-    m_telemetryMissileCombo = new QComboBox(telemetryGroup);
-    telemetrySelectorRow->addWidget(telemetryLabel);
-    telemetrySelectorRow->addWidget(m_telemetryMissileCombo, 1);
-    telemetrySelectorRow->addStretch();
-    telemetryLayout->addLayout(telemetrySelectorRow);
-
     m_telemetryWidget = new TelemetryPlotWidget(telemetryGroup);
     telemetryLayout->addWidget(m_telemetryWidget);
     telemetryGroup->setMinimumHeight(360);
@@ -1032,10 +1029,12 @@ void MainWindow::buildUi() {
     connect(replanButton, &QPushButton::clicked, this, &MainWindow::onDynamicReplan);
 
     connect(missileAddBtn, &QPushButton::clicked, this, &MainWindow::onAddMissile);
+    connect(missileModifyBtn, &QPushButton::clicked, this, &MainWindow::onUpdateMissile);
     connect(missileRemoveBtn, &QPushButton::clicked, this, &MainWindow::onRemoveMissile);
     connect(m_missileList, &QListWidget::currentRowChanged, this, &MainWindow::onMissileSelectionChanged);
 
     connect(targetAddBtn, &QPushButton::clicked, this, &MainWindow::onAddTarget);
+    connect(targetModifyBtn, &QPushButton::clicked, this, &MainWindow::onUpdateTarget);
     connect(targetRemoveBtn, &QPushButton::clicked, this, &MainWindow::onRemoveTarget);
     connect(m_targetList, &QListWidget::currentRowChanged, this, &MainWindow::onTargetSelectionChanged);
 
@@ -1057,12 +1056,6 @@ void MainWindow::buildUi() {
 
     connect(m_missileTypeCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
         m_missileSpeedSpin->setValue(defaultSpeedForType(index));
-    });
-
-    connect(m_telemetryMissileCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
-        if (m_telemetryWidget != nullptr) {
-            m_telemetryWidget->setSelectedMissile(index);
-        }
     });
 
     refreshSceneDataSourceLabel();
@@ -1121,12 +1114,15 @@ void MainWindow::refreshMissileList() {
     }
     m_missileList->blockSignals(false);
 
-    m_telemetryMissileCombo->blockSignals(true);
-    m_telemetryMissileCombo->clear();
-    for (const auto& mc : m_missileConfigs) {
-        m_telemetryMissileCombo->addItem(QString::fromStdString(mc.name));
+    if (m_telemetryWidget != nullptr) {
+        m_telemetryWidget->setMissileCount(static_cast<int>(m_missileConfigs.size()));
+        std::vector<std::string> names;
+        names.reserve(m_missileConfigs.size());
+        for (const auto& mc : m_missileConfigs) {
+            names.push_back(mc.name);
+        }
+        m_telemetryWidget->setMissileNames(names);
     }
-    m_telemetryMissileCombo->blockSignals(false);
 }
 
 void MainWindow::refreshTargetList() {
