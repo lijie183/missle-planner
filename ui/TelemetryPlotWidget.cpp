@@ -4,16 +4,20 @@
 #include <array>
 #include <cmath>
 
+#include <QComboBox>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QLinearGradient>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPaintEvent>
 #include <QPen>
 #include <QRect>
+#include <QVBoxLayout>
+
+#include "core/MissionTypes.h"
 
 namespace {
-
-constexpr std::size_t kMaxSamples = 600;
 
 enum class PlotKind {
     AltitudeKm,
@@ -205,13 +209,10 @@ void drawSubPlot(
     if (samples.size() < 2) {
         const auto& latest = samples.back();
         const QPointF pt = samplePoint(
-            plotRect,
-            tMin,
-            tMax,
+            plotRect, tMin, tMax,
             latest.timeSeconds,
             valueForSample(latest, config.kind),
-            yRange.minValue,
-            yRange.maxValue);
+            yRange.minValue, yRange.maxValue);
         painter.setPen(Qt::NoPen);
         painter.setBrush(config.lineColor);
         painter.drawEllipse(pt, 3.0, 3.0);
@@ -220,13 +221,10 @@ void drawSubPlot(
         for (std::size_t i = 0; i < samples.size(); ++i) {
             const auto& sample = samples[i];
             const QPointF point = samplePoint(
-                plotRect,
-                tMin,
-                tMax,
+                plotRect, tMin, tMax,
                 sample.timeSeconds,
                 valueForSample(sample, config.kind),
-                yRange.minValue,
-                yRange.maxValue);
+                yRange.minValue, yRange.maxValue);
             if (i == 0) {
                 path.moveTo(point);
             } else {
@@ -266,7 +264,64 @@ void TelemetryPlotWidget::pushSample(const Sample& sample) {
     while (m_samples.size() > kMaxSamples) {
         m_samples.pop_front();
     }
+    pushSample(m_selectedMissile, sample);
     update();
+}
+
+void TelemetryPlotWidget::pushSample(int missileIndex, const Sample& sample) {
+    if (missileIndex < 0) {
+        return;
+    }
+    if (missileIndex >= static_cast<int>(m_missileSamples.size())) {
+        m_missileSamples.resize(static_cast<std::size_t>(missileIndex + 1));
+    }
+    auto& deq = m_missileSamples[static_cast<std::size_t>(missileIndex)];
+    deq.push_back(sample);
+    while (deq.size() > kMaxSamples) {
+        deq.pop_front();
+    }
+    if (missileIndex == m_selectedMissile) {
+        update();
+    }
+}
+
+void TelemetryPlotWidget::setMissileCount(int count) {
+    m_missileCount = std::max(1, count);
+    if (static_cast<int>(m_missileSamples.size()) < m_missileCount) {
+        m_missileSamples.resize(static_cast<std::size_t>(m_missileCount));
+    }
+    if (m_selectedMissile >= m_missileCount) {
+        m_selectedMissile = 0;
+    }
+    update();
+}
+
+void TelemetryPlotWidget::clearMissileHistory(int index) {
+    if (index >= 0 && index < static_cast<int>(m_missileSamples.size())) {
+        m_missileSamples[static_cast<std::size_t>(index)].clear();
+    }
+    if (index == m_selectedMissile) {
+        update();
+    }
+}
+
+void TelemetryPlotWidget::clearAllHistory() {
+    m_samples.clear();
+    for (auto& deq : m_missileSamples) {
+        deq.clear();
+    }
+    update();
+}
+
+int TelemetryPlotWidget::selectedMissile() const {
+    return m_selectedMissile;
+}
+
+void TelemetryPlotWidget::setSelectedMissile(int index) {
+    if (index >= 0 && index < m_missileCount) {
+        m_selectedMissile = index;
+        update();
+    }
 }
 
 void TelemetryPlotWidget::paintEvent(QPaintEvent* event) {
@@ -293,12 +348,21 @@ void TelemetryPlotWidget::paintEvent(QPaintEvent* event) {
     const int cellHeight = (contentRect.height() - spacingY * (rows - 1)) / rows;
 
     const auto& configs = plotConfigs();
+
+    const std::deque<Sample>* displaySamples = &m_samples;
+    if (m_selectedMissile >= 0 && m_selectedMissile < static_cast<int>(m_missileSamples.size())) {
+        const auto& missileData = m_missileSamples[static_cast<std::size_t>(m_selectedMissile)];
+        if (!missileData.empty()) {
+            displaySamples = &missileData;
+        }
+    }
+
     for (int index = 0; index < static_cast<int>(configs.size()); ++index) {
         const int row = index / cols;
         const int col = index % cols;
         const int x = contentRect.left() + col * (cellWidth + spacingX);
         const int y = contentRect.top() + row * (cellHeight + spacingY);
         const QRect cellRect(x, y, cellWidth, cellHeight);
-        drawSubPlot(painter, cellRect, m_samples, configs[static_cast<std::size_t>(index)]);
+        drawSubPlot(painter, cellRect, *displaySamples, configs[static_cast<std::size_t>(index)]);
     }
 }

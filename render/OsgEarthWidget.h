@@ -27,7 +27,6 @@ class TrackballManipulator;
 
 namespace osgEarth {
 class MapNode;
-class GeoTransform;
 namespace Util {
 class EarthManipulator;
 }
@@ -44,6 +43,27 @@ public:
     enum class GlobeMode {
         Realistic,
         Presentation
+    };
+
+    struct MissileVisual {
+        osg::ref_ptr<osg::Group> group;
+        osg::ref_ptr<osg::Geode> routeGeode;
+        osg::ref_ptr<osg::Geode> trailGeode;
+        osg::ref_ptr<osg::MatrixTransform> missileNode;
+        osg::ref_ptr<osg::Node> startMarker;
+        osg::ref_ptr<osg::Node> targetMarker;
+        osg::ref_ptr<osg::Node> impactNode;
+        osgEarth::GeoPoint startPoint;
+        osgEarth::GeoPoint targetPoint;
+        osgEarth::GeoPoint missilePoint;
+        std::vector<osgEarth::GeoPoint> route;
+        std::vector<osgEarth::GeoPoint> trail;
+        osg::Vec4 color;
+        bool hasStart = false;
+        bool hasTarget = false;
+        bool hasMissile = false;
+        bool followEnabled = false;
+        int followTickCounter = 0;
     };
 
     explicit OsgEarthWidget(QWidget* parent = nullptr);
@@ -68,6 +88,19 @@ public:
     void resetMissionGraphics();
     void zoomIn();
     void zoomOut();
+
+    void setMissileCount(int count);
+    int missileCount() const;
+    void setMissileStartPoint(int index, const osgEarth::GeoPoint& point);
+    void setMissileTargetPoint(int index, const osgEarth::GeoPoint& point);
+    void setMissileRoute(int index, const std::vector<osgEarth::GeoPoint>& route);
+    void setMissilePosition(int index, const osgEarth::GeoPoint& position);
+    void setMissileColor(int index, const osg::Vec4& color);
+    void clearMissile(int index);
+    void showMissileImpact(int index, const osgEarth::GeoPoint& point);
+    void clearMissileImpact(int index);
+    void setFollowMissile(int index, bool enabled);
+    void focusOnAllRoutes();
 
 protected:
     QPaintEngine* paintEngine() const override;
@@ -94,6 +127,11 @@ private:
     void rebuildMarkers();
     void rebuildRouteGeometry();
     void rebuildTrailGeometry();
+
+    void ensureMissileVisual(int index);
+    void rebuildMissileRouteGeometry(int index);
+    void rebuildMissileTrailGeometry(int index);
+    void rebuildMissileMarker(int index);
 
     bool m_initialized = false;
     bool m_initializing = false;
@@ -137,4 +175,6 @@ private:
     std::vector<mission::ThreatZone> m_threats;
     std::vector<osgEarth::GeoPoint> m_route;
     std::vector<osgEarth::GeoPoint> m_trail;
+
+    std::vector<MissileVisual> m_missileVisuals;
 };
