@@ -156,22 +156,7 @@ void MainWindow::onAddMissile() {
     m_missileConfigs.push_back(cfg);
     refreshMissileList();
     syncEarthWidgetFromConfig();
-    m_missileList->setCurrentRow(static_cast<int>(m_missileConfigs.size()) - 1);
     statusBar()->showMessage(QStringLiteral("已添加导弹。"), 2000);
-}
-
-void MainWindow::onUpdateMissile() {
-    const int currentIdx = m_missileList->currentRow();
-    if (currentIdx < 0 || currentIdx >= static_cast<int>(m_missileConfigs.size())) {
-        QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("请先选中要修改的导弹。"));
-        return;
-    }
-
-    m_selectedMissileIndex = currentIdx;
-    saveCurrentMissileParams();
-    refreshMissileList();
-    m_missileList->setCurrentRow(currentIdx);
-    statusBar()->showMessage(QStringLiteral("已更新导弹参数。"), 2000);
 }
 
 void MainWindow::onRemoveMissile() {
@@ -209,22 +194,7 @@ void MainWindow::onAddTarget() {
     m_targetConfigs.push_back(cfg);
     refreshTargetList();
     syncEarthWidgetFromConfig();
-    m_targetList->setCurrentRow(static_cast<int>(m_targetConfigs.size()) - 1);
     statusBar()->showMessage(QStringLiteral("已添加目标。"), 2000);
-}
-
-void MainWindow::onUpdateTarget() {
-    const int currentIdx = m_targetList->currentRow();
-    if (currentIdx < 0 || currentIdx >= static_cast<int>(m_targetConfigs.size())) {
-        QMessageBox::warning(this, QStringLiteral("提示"), QStringLiteral("请先选中要修改的目标。"));
-        return;
-    }
-
-    m_selectedTargetIndex = currentIdx;
-    saveCurrentTargetParams();
-    refreshTargetList();
-    m_targetList->setCurrentRow(currentIdx);
-    statusBar()->showMessage(QStringLiteral("已更新目标参数。"), 2000);
 }
 
 void MainWindow::onRemoveTarget() {
@@ -744,11 +714,8 @@ void MainWindow::buildUi() {
     missileAddBtn->setMinimumWidth(50);
     auto* missileRemoveBtn = new QPushButton(QStringLiteral("-"), missileGroup);
     missileRemoveBtn->setMinimumWidth(50);
-    auto* missileModifyBtn = new QPushButton(QStringLiteral("修改"), missileGroup);
-    missileModifyBtn->setMinimumWidth(50);
     auto* missileBtnCol = new QVBoxLayout;
     missileBtnCol->addWidget(missileAddBtn);
-    missileBtnCol->addWidget(missileModifyBtn);
     missileBtnCol->addWidget(missileRemoveBtn);
     missileBtnCol->addStretch();
     missileListRow->addWidget(m_missileList, 1);
@@ -791,11 +758,8 @@ void MainWindow::buildUi() {
     targetAddBtn->setMinimumWidth(50);
     auto* targetRemoveBtn = new QPushButton(QStringLiteral("-"), targetGroup);
     targetRemoveBtn->setMinimumWidth(50);
-    auto* targetModifyBtn = new QPushButton(QStringLiteral("修改"), targetGroup);
-    targetModifyBtn->setMinimumWidth(50);
     auto* targetBtnCol = new QVBoxLayout;
     targetBtnCol->addWidget(targetAddBtn);
-    targetBtnCol->addWidget(targetModifyBtn);
     targetBtnCol->addWidget(targetRemoveBtn);
     targetBtnCol->addStretch();
     targetListRow->addWidget(m_targetList, 1);
@@ -1029,12 +993,10 @@ void MainWindow::buildUi() {
     connect(replanButton, &QPushButton::clicked, this, &MainWindow::onDynamicReplan);
 
     connect(missileAddBtn, &QPushButton::clicked, this, &MainWindow::onAddMissile);
-    connect(missileModifyBtn, &QPushButton::clicked, this, &MainWindow::onUpdateMissile);
     connect(missileRemoveBtn, &QPushButton::clicked, this, &MainWindow::onRemoveMissile);
     connect(m_missileList, &QListWidget::currentRowChanged, this, &MainWindow::onMissileSelectionChanged);
 
     connect(targetAddBtn, &QPushButton::clicked, this, &MainWindow::onAddTarget);
-    connect(targetModifyBtn, &QPushButton::clicked, this, &MainWindow::onUpdateTarget);
     connect(targetRemoveBtn, &QPushButton::clicked, this, &MainWindow::onRemoveTarget);
     connect(m_targetList, &QListWidget::currentRowChanged, this, &MainWindow::onTargetSelectionChanged);
 
@@ -1096,23 +1058,13 @@ void MainWindow::refreshThreatList() {
 void MainWindow::refreshMissileList() {
     if (m_missileList == nullptr) return;
 
-    m_missileList->blockSignals(true);
-    const int prevRow = m_missileList->currentRow();
     m_missileList->clear();
-
     for (const auto& mc : m_missileConfigs) {
         m_missileList->addItem(QStringLiteral("%1  %2°E %3°N")
                                    .arg(QString::fromStdString(mc.name))
                                    .arg(mc.startLonDeg, 0, 'f', 2)
                                    .arg(mc.startLatDeg, 0, 'f', 2));
     }
-
-    if (prevRow >= 0 && prevRow < m_missileList->count()) {
-        m_missileList->setCurrentRow(prevRow);
-    } else if (m_missileList->count() > 0) {
-        m_missileList->setCurrentRow(0);
-    }
-    m_missileList->blockSignals(false);
 
     if (m_telemetryWidget != nullptr) {
         m_telemetryWidget->setMissileCount(static_cast<int>(m_missileConfigs.size()));
@@ -1128,10 +1080,7 @@ void MainWindow::refreshMissileList() {
 void MainWindow::refreshTargetList() {
     if (m_targetList == nullptr) return;
 
-    m_targetList->blockSignals(true);
-    const int prevRow = m_targetList->currentRow();
     m_targetList->clear();
-
     for (const auto& tc : m_targetConfigs) {
         m_targetList->addItem(QStringLiteral("%1  %2°E %3°N  P:%4")
                                   .arg(QString::fromStdString(tc.name))
@@ -1139,13 +1088,6 @@ void MainWindow::refreshTargetList() {
                                   .arg(tc.latDeg, 0, 'f', 2)
                                   .arg(tc.priority));
     }
-
-    if (prevRow >= 0 && prevRow < m_targetList->count()) {
-        m_targetList->setCurrentRow(prevRow);
-    } else if (m_targetList->count() > 0) {
-        m_targetList->setCurrentRow(0);
-    }
-    m_targetList->blockSignals(false);
 }
 
 void MainWindow::refreshMetrics(const mission::PlanMetrics& metrics) {
@@ -1290,7 +1232,6 @@ void MainWindow::saveCurrentMissileParams() {
     cfg.missileType = m_missileTypeCombo->currentIndex();
     cfg.speedMps = m_missileSpeedSpin->value();
 
-    refreshMissileList();
     syncEarthWidgetFromConfig();
 }
 
@@ -1305,7 +1246,6 @@ void MainWindow::saveCurrentTargetParams() {
     cfg.altMeters = m_targetAlt->value();
     cfg.priority = m_targetPrioritySpin->value();
 
-    refreshTargetList();
     syncEarthWidgetFromConfig();
 }
 

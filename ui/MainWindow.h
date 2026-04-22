@@ -48,11 +48,9 @@ public:
 
 private slots:
     void onAddMissile();
-    void onUpdateMissile();
     void onRemoveMissile();
     void onMissileSelectionChanged();
     void onAddTarget();
-    void onUpdateTarget();
     void onRemoveTarget();
     void onTargetSelectionChanged();
     void onAddThreat();
