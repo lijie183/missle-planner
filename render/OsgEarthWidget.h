@@ -117,6 +117,7 @@ private:
     osg::ref_ptr<osg::Geode> m_trailGeode;
     osg::ref_ptr<osg::MatrixTransform> m_missileNode;
     osg::ref_ptr<osg::Node> m_impactNode;
+    std::vector<osg::ref_ptr<osg::MatrixTransform>> m_threatVisualNodes;
 
     osgEarth::GeoPoint m_startPoint;
     osgEarth::GeoPoint m_targetPoint;

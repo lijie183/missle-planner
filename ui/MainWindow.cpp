@@ -233,7 +233,7 @@ void MainWindow::onStartSimulation() {
         m_earthWidget->setFollowMissile(m_followMissileCheck != nullptr && m_followMissileCheck->isChecked());
         m_earthWidget->clearImpactEffect();
         m_earthWidget->setMissilePosition(m_lastRoute.front());
-        m_earthWidget->focusOnPoint(m_lastRoute.front(), 140000.0);
+        m_earthWidget->focusOnRoute(m_lastRoute);
     }
 
     m_tickClock.restart();

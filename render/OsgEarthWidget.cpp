@@ -143,6 +143,173 @@ double gaussianBlob(double lonDeg, double latDeg, double centerLon, double cente
     return std::exp(-(dx * dx / (2.0 * sx2) + dy * dy / (2.0 * sy2)));
 }
 
+double clamp01(double value) {
+    return std::clamp(value, 0.0, 1.0);
+}
+
+osg::Vec4 mixColor(const osg::Vec4& a, const osg::Vec4& b, double t) {
+    const double safeT = clamp01(t);
+    return osg::Vec4(
+        static_cast<float>(a.r() + (b.r() - a.r()) * safeT),
+        static_cast<float>(a.g() + (b.g() - a.g()) * safeT),
+        static_cast<float>(a.b() + (b.b() - a.b()) * safeT),
+        static_cast<float>(a.a() + (b.a() - a.a()) * safeT));
+}
+
+osg::Matrixd makeUpAlignedMatrix(const osg::Vec3d& worldPos) {
+    osg::Vec3d up = worldPos;
+    if (up.length2() < 1e-6) {
+        up = osg::Vec3d(0.0, 0.0, 1.0);
+    } else {
+        up.normalize();
+    }
+
+    osg::Quat rotation;
+    rotation.makeRotate(osg::Vec3d(0.0, 0.0, 1.0), up);
+    return osg::Matrix::rotate(rotation) * osg::Matrix::translate(worldPos);
+}
+
+osg::ref_ptr<osg::Geode> buildRingGeode(double radiusMeters, double zOffsetMeters, const osg::Vec4& color) {
+    osg::ref_ptr<osg::Vec3Array> vertices = new osg::Vec3Array;
+    constexpr int segments = 72;
+    const double fullTurn = 2.0 * 3.14159265358979323846;
+    vertices->reserve(segments);
+
+    for (int i = 0; i < segments; ++i) {
+        const double angle = fullTurn * static_cast<double>(i) / static_cast<double>(segments);
+        vertices->push_back(osg::Vec3(
+            static_cast<float>(std::cos(angle) * radiusMeters),
+            static_cast<float>(std::sin(angle) * radiusMeters),
+            static_cast<float>(zOffsetMeters)));
+    }
+
+    osg::ref_ptr<osg::Geometry> ring = new osg::Geometry;
+    ring->setVertexArray(vertices.get());
+    ring->addPrimitiveSet(new osg::DrawArrays(GL_LINE_LOOP, 0, static_cast<GLsizei>(vertices->size())));
+
+    osg::ref_ptr<osg::Vec4Array> colors = new osg::Vec4Array;
+    colors->push_back(color);
+    ring->setColorArray(colors.get(), osg::Array::BIND_OVERALL);
+
+    osg::StateSet* stateSet = ring->getOrCreateStateSet();
+    stateSet->setMode(GL_BLEND, osg::StateAttribute::ON);
+    stateSet->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+    stateSet->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
+    stateSet->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
+
+    osg::ref_ptr<osg::LineWidth> width = new osg::LineWidth(2.0f);
+    stateSet->setAttributeAndModes(width.get(), osg::StateAttribute::ON);
+
+    osg::ref_ptr<osg::Geode> geode = new osg::Geode;
+    geode->addDrawable(ring.get());
+    return geode;
+}
+
+osg::ref_ptr<osg::MatrixTransform> buildThreatVisualNode(const mission::ThreatZone& threat) {
+    const double height = std::max(80.0, threat.maxAltitudeMeters - threat.minAltitudeMeters);
+    const double centerAlt = threat.minAltitudeMeters + height * 0.5;
+    const auto* wgs84 = osgEarth::SpatialReference::get("wgs84");
+    if (wgs84 == nullptr) {
+        return nullptr;
+    }
+
+    osgEarth::GeoPoint geoPoint(
+        wgs84,
+        threat.longitudeDeg,
+        threat.latitudeDeg,
+        centerAlt,
+        osgEarth::ALTMODE_ABSOLUTE);
+
+    osg::Vec3d world;
+    geoPoint.toWorld(world);
+
+    osg::ref_ptr<osg::MatrixTransform> xform = new osg::MatrixTransform;
+    xform->setMatrix(makeUpAlignedMatrix(world));
+
+    const double threatScale = clamp01(0.2 + threat.radiusMeters / 45000.0 + height / 12000.0);
+    const osg::Vec4 hotCore = mixColor(osg::Vec4(1.0f, 0.90f, 0.20f, 0.78f), osg::Vec4(1.0f, 0.18f, 0.08f, 0.92f), threatScale);
+    const osg::Vec4 coreColor(hotCore.r(), hotCore.g(), hotCore.b(), 0.42f);
+    const osg::Vec4 shellColor(1.0f, 0.42f + static_cast<float>(0.18 * threatScale), 0.08f, 0.24f);
+    const osg::Vec4 hazeColor(1.0f, 0.22f, 0.10f, 0.12f);
+    const osg::Vec4 ringColor(1.0f, 0.94f, 0.28f, 0.45f);
+    const osg::Vec4 pillarColor(1.0f, 0.96f, 0.34f, 0.72f);
+
+    auto addCylinder = [&](double radiusMeters, double cylinderHeight, const osg::Vec4& color, double zOffsetMeters) {
+        osg::ref_ptr<osg::Geode> geode = new osg::Geode;
+        osg::ref_ptr<osg::ShapeDrawable> drawable = new osg::ShapeDrawable(
+            new osg::Cylinder(osg::Vec3(0.0f, 0.0f, static_cast<float>(zOffsetMeters)),
+                              static_cast<float>(radiusMeters),
+                              static_cast<float>(cylinderHeight)));
+        drawable->setColor(color);
+        geode->addDrawable(drawable.get());
+
+        osg::StateSet* stateSet = geode->getOrCreateStateSet();
+        stateSet->setMode(GL_BLEND, osg::StateAttribute::ON);
+        stateSet->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+        stateSet->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
+        stateSet->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
+
+        xform->addChild(geode.get());
+    };
+
+    addCylinder(threat.radiusMeters * 1.12, height * 0.92, hazeColor, 0.0);
+    addCylinder(threat.radiusMeters * 0.86, height * 0.98, shellColor, 0.0);
+    addCylinder(threat.radiusMeters * 0.52, height * 1.04, coreColor, 0.0);
+    addCylinder(std::max(160.0, threat.radiusMeters * 0.11), height * 1.08, pillarColor, 0.0);
+
+    xform->addChild(buildRingGeode(threat.radiusMeters * 1.12, static_cast<double>(height) * 0.5, ringColor).get());
+    xform->addChild(buildRingGeode(threat.radiusMeters * 1.12, -static_cast<double>(height) * 0.5, ringColor).get());
+
+    return xform;
+}
+
+osg::ref_ptr<osg::Node> buildVerticalMarkerNode(const osgEarth::GeoPoint& point, const osg::Vec4& color, double radiusMeters) {
+    osg::Vec3d world;
+    point.toWorld(world);
+
+    osg::ref_ptr<osg::MatrixTransform> xform = new osg::MatrixTransform;
+    xform->setMatrix(makeUpAlignedMatrix(world));
+
+    osg::ref_ptr<osg::Geode> geode = new osg::Geode;
+    osg::ref_ptr<osg::ShapeDrawable> pillar = new osg::ShapeDrawable(
+        new osg::Cylinder(osg::Vec3(0.0f, 0.0f, 0.0f),
+                          static_cast<float>(radiusMeters),
+                          static_cast<float>(std::max(400.0, point.z() * 1.02))));
+    pillar->setColor(color);
+    geode->addDrawable(pillar.get());
+
+    osg::ref_ptr<osg::ShapeDrawable> cap = new osg::ShapeDrawable(
+        new osg::Sphere(osg::Vec3(0.0f, 0.0f, static_cast<float>(std::max(400.0, point.z() * 1.02) * 0.5)),
+                        static_cast<float>(radiusMeters * 1.35)));
+    cap->setColor(osg::Vec4(color.r(), color.g(), color.b(), std::min(0.92f, color.a() + 0.12f)));
+    geode->addDrawable(cap.get());
+
+    osg::StateSet* stateSet = geode->getOrCreateStateSet();
+    stateSet->setMode(GL_BLEND, osg::StateAttribute::ON);
+    stateSet->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+    stateSet->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
+    stateSet->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
+
+    xform->addChild(geode.get());
+    return xform;
+}
+
+double headingDegrees(const osgEarth::GeoPoint& from, const osgEarth::GeoPoint& to) {
+    const double meanLatRad = toRadians((from.y() + to.y()) * 0.5);
+    const double dx = (to.x() - from.x()) * kMetersPerLatDegree * std::max(0.1, std::cos(meanLatRad));
+    const double dy = (to.y() - from.y()) * kMetersPerLatDegree;
+
+    if (std::abs(dx) < 1e-6 && std::abs(dy) < 1e-6) {
+        return 0.0;
+    }
+
+    double heading = std::atan2(dx, dy) * 57.29577951308232;
+    if (heading < 0.0) {
+        heading += 360.0;
+    }
+    return heading;
+}
+
 osg::ref_ptr<osg::Image> tryLoadEarthTextureImage() {
     const std::array<std::string, 6> imageCandidates = {
         "resources/earth_day.jpg",
@@ -421,7 +588,9 @@ void OsgEarthWidget::setTargetPoint(const osgEarth::GeoPoint& point) {
 
 void OsgEarthWidget::setThreatZones(const std::vector<mission::ThreatZone>& threats) {
     m_threats = threats;
-    rebuildThreatGeometry();
+    if (m_root.valid()) {
+        rebuildThreatGeometry();
+    }
 }
 
 void OsgEarthWidget::setPlannedRoute(const std::vector<osgEarth::GeoPoint>& route) {
@@ -495,8 +664,8 @@ void OsgEarthWidget::focusOnPoint(const osgEarth::GeoPoint& point, double rangeM
             point.x(),
             point.y(),
             point.z(),
-            0.0,
-            -45.0,
+            20.0,
+            -28.0,
             safeRange);
         m_earthManipulator->setViewpoint(vp, 0.25);
         return;
@@ -535,7 +704,23 @@ void OsgEarthWidget::focusOnRoute(const std::vector<osgEarth::GeoPoint>& route) 
     const osgEarth::GeoPoint& goal = route.back();
     const osgEarth::GeoPoint& center = route[route.size() / 2];
     const double baselineMeters = approximateDistanceMeters(start, goal);
-    const double rangeMeters = std::clamp(baselineMeters * 2.0 + 40000.0, 80000.0, 1500000.0);
+    const double altitudeSpan = std::abs(goal.z() - start.z());
+    const double rangeMeters = std::clamp(baselineMeters * 1.45 + altitudeSpan * 6.0 + 45000.0, 90000.0, 1500000.0);
+
+    ensureSceneCreated();
+    if (m_globeMode == GlobeMode::Realistic && m_hasRealEarthDataset && m_earthManipulator.valid()) {
+        osgEarth::Viewpoint vp(
+            "mission-route",
+            center.x(),
+            center.y(),
+            center.z(),
+            headingDegrees(start, goal),
+            -24.0,
+            rangeMeters);
+        m_earthManipulator->setViewpoint(vp, 0.25);
+        return;
+    }
+
     focusOnPoint(center, rangeMeters);
 }
 
@@ -884,6 +1069,11 @@ void OsgEarthWidget::ensureSceneCreated() {
 
     m_overlayGroup->addChild(m_missileNode.get());
     m_root->addChild(m_overlayGroup.get());
+
+    rebuildThreatGeometry();
+    rebuildMarkers();
+    rebuildRouteGeometry();
+    rebuildTrailGeometry();
 }
 
 void OsgEarthWidget::rebuildFallbackGlobe() {
@@ -1068,42 +1258,25 @@ void OsgEarthWidget::rebuildThreatGeometry() {
         return;
     }
 
-    m_threatGroup->removeChildren(0, m_threatGroup->getNumChildren());
-
-    const auto* wgs84 = osgEarth::SpatialReference::get("wgs84");
-    if (wgs84 == nullptr) {
-        return;
+    while (m_threatVisualNodes.size() > m_threats.size()) {
+        osg::ref_ptr<osg::MatrixTransform> node = m_threatVisualNodes.back();
+        if (node.valid()) {
+            m_threatGroup->removeChild(node.get());
+        }
+        m_threatVisualNodes.pop_back();
     }
 
-    for (const auto& threat : m_threats) {
-        const double height = std::max(80.0, threat.maxAltitudeMeters - threat.minAltitudeMeters);
-        const double centerAlt = threat.minAltitudeMeters + height * 0.5;
+    while (m_threatVisualNodes.size() < m_threats.size()) {
+        m_threatVisualNodes.push_back(nullptr);
+    }
 
-        osgEarth::GeoPoint geoPoint(
-            wgs84,
-            threat.longitudeDeg,
-            threat.latitudeDeg,
-            centerAlt,
-            osgEarth::ALTMODE_ABSOLUTE);
-
-        osg::Vec3d world;
-        geoPoint.toWorld(world);
-
-        osg::ref_ptr<osg::MatrixTransform> xform = new osg::MatrixTransform;
-        xform->setMatrix(osg::Matrix::translate(world));
-
-        osg::ref_ptr<osg::Geode> geode = new osg::Geode;
-        osg::ref_ptr<osg::ShapeDrawable> draw = new osg::ShapeDrawable(
-            new osg::Cylinder(osg::Vec3(0.0f, 0.0f, 0.0f), static_cast<float>(threat.radiusMeters), static_cast<float>(height)));
-        draw->setColor(osg::Vec4(0.95f, 0.1f, 0.12f, 0.35f));
-        geode->addDrawable(draw.get());
-
-        osg::StateSet* stateSet = geode->getOrCreateStateSet();
-        stateSet->setMode(GL_BLEND, osg::StateAttribute::ON);
-        stateSet->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
-
-        xform->addChild(geode.get());
-        m_threatGroup->addChild(xform.get());
+    for (std::size_t i = 0; i < m_threats.size(); ++i) {
+        osg::ref_ptr<osg::MatrixTransform> newNode = buildThreatVisualNode(m_threats[i]);
+        if (m_threatVisualNodes[i].valid()) {
+            m_threatGroup->removeChild(m_threatVisualNodes[i].get());
+        }
+        m_threatVisualNodes[i] = newNode;
+        m_threatGroup->addChild(newNode.get());
     }
 }
 
@@ -1116,11 +1289,11 @@ void OsgEarthWidget::rebuildMarkers() {
     m_markerGroup->removeChildren(0, m_markerGroup->getNumChildren());
 
     if (m_hasStartPoint) {
-        m_markerGroup->addChild(buildMarkerNode(m_startPoint, osg::Vec4(0.1f, 1.0f, 0.3f, 0.95f), 2600.0));
+        m_markerGroup->addChild(buildVerticalMarkerNode(m_startPoint, osg::Vec4(0.12f, 0.98f, 0.42f, 0.92f), 2400.0));
     }
 
     if (m_hasTargetPoint) {
-        m_markerGroup->addChild(buildMarkerNode(m_targetPoint, osg::Vec4(1.0f, 0.95f, 0.1f, 0.95f), 2600.0));
+        m_markerGroup->addChild(buildVerticalMarkerNode(m_targetPoint, osg::Vec4(1.0f, 0.90f, 0.18f, 0.92f), 2400.0));
     }
 }
 
@@ -1137,30 +1310,101 @@ void OsgEarthWidget::rebuildRouteGeometry() {
         return;
     }
 
+    double minAltitude = m_route.front().z();
+    double maxAltitude = m_route.front().z();
+    for (const auto& point : m_route) {
+        minAltitude = std::min(minAltitude, point.z());
+        maxAltitude = std::max(maxAltitude, point.z());
+    }
+    const double altitudeSpan = std::max(1.0, maxAltitude - minAltitude);
+
     osg::ref_ptr<osg::Vec3Array> vertices = new osg::Vec3Array;
     vertices->reserve(m_route.size());
 
-    for (const auto& point : m_route) {
+    osg::ref_ptr<osg::Vec4Array> routeColors = new osg::Vec4Array;
+    routeColors->reserve(m_route.size());
+
+    osg::ref_ptr<osg::Vec3Array> shadowVertices = new osg::Vec3Array;
+    shadowVertices->reserve(m_route.size());
+
+    osg::ref_ptr<osg::Vec3Array> altitudeVertices = new osg::Vec3Array;
+    osg::ref_ptr<osg::Vec4Array> altitudeColors = new osg::Vec4Array;
+
+    const std::size_t sampleStep = std::max<std::size_t>(1, m_route.size() / 10);
+
+    for (std::size_t i = 0; i < m_route.size(); ++i) {
+        const auto& point = m_route[i];
         osg::Vec3d world;
         point.toWorld(world);
         vertices->push_back(world);
+
+        const double altitudeT = clamp01((point.z() - minAltitude) / altitudeSpan);
+        routeColors->push_back(mixColor(
+            osg::Vec4(0.18f, 0.92f, 1.0f, 0.98f),
+            osg::Vec4(1.0f, 0.78f, 0.16f, 1.0f),
+            altitudeT));
+
+        const auto* wgs84 = point.getSRS() != nullptr ? point.getSRS() : osgEarth::SpatialReference::get("wgs84");
+        if (wgs84 == nullptr) {
+            continue;
+        }
+
+        osgEarth::GeoPoint shadowPoint(
+            wgs84,
+            point.x(),
+            point.y(),
+            0.0,
+            osgEarth::ALTMODE_ABSOLUTE);
+        osg::Vec3d shadowWorld;
+        shadowPoint.toWorld(shadowWorld);
+        shadowVertices->push_back(shadowWorld);
+
+        if (i == 0 || i + 1 == m_route.size() || (i % sampleStep) == 0) {
+            altitudeVertices->push_back(shadowWorld);
+            altitudeVertices->push_back(world);
+            altitudeColors->push_back(osg::Vec4(0.35f, 0.88f, 1.0f, 0.20f));
+            altitudeColors->push_back(osg::Vec4(1.0f, 0.72f, 0.18f, 0.85f));
+        }
     }
 
-    osg::ref_ptr<osg::Geometry> line = new osg::Geometry;
-    line->setVertexArray(vertices.get());
-    line->addPrimitiveSet(new osg::DrawArrays(GL_LINE_STRIP, 0, static_cast<GLsizei>(vertices->size())));
+    osg::ref_ptr<osg::Geometry> shadowLine = new osg::Geometry;
+    shadowLine->setVertexArray(shadowVertices.get());
+    shadowLine->addPrimitiveSet(new osg::DrawArrays(GL_LINE_STRIP, 0, static_cast<GLsizei>(shadowVertices->size())));
+    osg::ref_ptr<osg::Vec4Array> shadowColors = new osg::Vec4Array;
+    shadowColors->push_back(osg::Vec4(0.12f, 0.52f, 0.72f, 0.35f));
+    shadowLine->setColorArray(shadowColors.get(), osg::Array::BIND_OVERALL);
+    osg::StateSet* shadowState = shadowLine->getOrCreateStateSet();
+    shadowState->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+    shadowState->setMode(GL_BLEND, osg::StateAttribute::ON);
+    shadowState->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
+    osg::ref_ptr<osg::LineWidth> shadowWidth = new osg::LineWidth(3.0f);
+    shadowState->setAttributeAndModes(shadowWidth.get(), osg::StateAttribute::ON);
 
-    osg::ref_ptr<osg::Vec4Array> colors = new osg::Vec4Array;
-    colors->push_back(osg::Vec4(0.15f, 0.95f, 1.0f, 1.0f));
-    line->setColorArray(colors.get(), osg::Array::BIND_OVERALL);
+    osg::ref_ptr<osg::Geometry> routeLine = new osg::Geometry;
+    routeLine->setVertexArray(vertices.get());
+    routeLine->setColorArray(routeColors.get(), osg::Array::BIND_PER_VERTEX);
+    routeLine->addPrimitiveSet(new osg::DrawArrays(GL_LINE_STRIP, 0, static_cast<GLsizei>(vertices->size())));
+    osg::StateSet* routeState = routeLine->getOrCreateStateSet();
+    routeState->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+    routeState->setMode(GL_BLEND, osg::StateAttribute::ON);
+    routeState->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
+    osg::ref_ptr<osg::LineWidth> routeWidth = new osg::LineWidth(6.0f);
+    routeState->setAttributeAndModes(routeWidth.get(), osg::StateAttribute::ON);
 
-    osg::StateSet* stateSet = line->getOrCreateStateSet();
-    stateSet->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
-    stateSet->setMode(GL_BLEND, osg::StateAttribute::ON);
-    stateSet->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
+    osg::ref_ptr<osg::Geometry> altitudePosts = new osg::Geometry;
+    altitudePosts->setVertexArray(altitudeVertices.get());
+    altitudePosts->setColorArray(altitudeColors.get(), osg::Array::BIND_PER_VERTEX);
+    altitudePosts->addPrimitiveSet(new osg::DrawArrays(GL_LINES, 0, static_cast<GLsizei>(altitudeVertices->size())));
+    osg::StateSet* postsState = altitudePosts->getOrCreateStateSet();
+    postsState->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+    postsState->setMode(GL_BLEND, osg::StateAttribute::ON);
+    postsState->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
+    osg::ref_ptr<osg::LineWidth> postsWidth = new osg::LineWidth(2.0f);
+    postsState->setAttributeAndModes(postsWidth.get(), osg::StateAttribute::ON);
 
-    osg::ref_ptr<osg::LineWidth> width = new osg::LineWidth(6.0f);
-    stateSet->setAttributeAndModes(width.get(), osg::StateAttribute::ON);
-
-    m_pathGeode->addDrawable(line.get());
+    m_pathGeode->addDrawable(shadowLine.get());
+    m_pathGeode->addDrawable(routeLine.get());
+    if (!altitudeVertices->empty()) {
+        m_pathGeode->addDrawable(altitudePosts.get());
+    }
 }
