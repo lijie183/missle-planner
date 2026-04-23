@@ -28,6 +28,11 @@ double lerp(double a, double b, double t) {
     return a + (b - a) * t;
 }
 
+double smoothstep(double t) {
+    const double x = std::clamp(t, 0.0, 1.0);
+    return x * x * (3.0 - 2.0 * x);
+}
+
 }  // namespace
 
 namespace mission {
@@ -57,6 +62,11 @@ void MissileSim::setRoute(const std::vector<osgEarth::GeoPoint>& route) {
     }
 
     m_state.totalMeters = cumulative;
+
+    const double startAlt = m_route.front().z();
+    const double endAlt = m_route.back().z();
+    const double spanAlt = std::abs(endAlt - startAlt);
+    m_launchClimbPeakMeters = std::clamp(650.0 + startAlt * 0.18 + spanAlt * 0.06, 420.0, 1800.0);
 }
 
 bool MissileSim::hasRoute() const {
@@ -70,7 +80,7 @@ void MissileSim::start(double speedMetersPerSecond) {
     }
 
     m_state.speedMetersPerSecond = std::max(1.0, speedMetersPerSecond);
-    m_state.currentSpeedMetersPerSecond = m_state.speedMetersPerSecond;
+    m_state.currentSpeedMetersPerSecond = std::max(40.0, m_state.speedMetersPerSecond * 0.33);
     m_state.traveledMeters = 0.0;
     m_state.elapsedSeconds = 0.0;
     m_state.phase = Phase::Boost;
@@ -106,25 +116,22 @@ bool MissileSim::update(double deltaSeconds, osgEarth::GeoPoint& outPosition) {
 
     m_state.phase = phaseForProgress(progress);
 
-    double speedMultiplier = 1.0;
-    switch (m_state.phase) {
-        case Phase::Boost:
-            speedMultiplier = 1.35;
-            break;
-        case Phase::Cruise:
-            speedMultiplier = 1.0;
-            break;
-        case Phase::Terminal:
-            speedMultiplier = 0.68;
-            break;
-        case Phase::Completed:
-        case Phase::Idle:
-        default:
-            speedMultiplier = 1.0;
-            break;
+    const double desiredSpeed = desiredSpeedForPhase(m_state.phase);
+    double accelLimit = 18.0;
+    double decelLimit = 24.0;
+    if (m_state.phase == Phase::Boost) {
+        accelLimit = 52.0;
+    } else if (m_state.phase == Phase::Terminal) {
+        accelLimit = 16.0;
+        decelLimit = 36.0;
     }
 
-    m_state.currentSpeedMetersPerSecond = m_state.speedMetersPerSecond * speedMultiplier;
+    const double deltaVTarget = desiredSpeed - m_state.currentSpeedMetersPerSecond;
+    const double maxRise = accelLimit * safeDeltaSeconds;
+    const double maxDrop = decelLimit * safeDeltaSeconds;
+    const double deltaV = std::clamp(deltaVTarget, -maxDrop, maxRise);
+    m_state.currentSpeedMetersPerSecond = std::max(20.0, m_state.currentSpeedMetersPerSecond + deltaV);
+
     m_state.traveledMeters += safeDeltaSeconds * m_state.currentSpeedMetersPerSecond;
     if (m_state.traveledMeters >= m_state.totalMeters) {
         m_state.traveledMeters = m_state.totalMeters;
@@ -148,6 +155,39 @@ MissileSim::Phase MissileSim::phaseForProgress(double progress) const {
         return Phase::Cruise;
     }
     return Phase::Terminal;
+}
+
+double MissileSim::desiredSpeedForPhase(Phase phase) const {
+    switch (phase) {
+        case Phase::Boost:
+            return m_state.speedMetersPerSecond * 1.18;
+        case Phase::Cruise:
+            return m_state.speedMetersPerSecond * 1.00;
+        case Phase::Terminal:
+            return m_state.speedMetersPerSecond * 0.72;
+        case Phase::Completed:
+            return 0.0;
+        case Phase::Idle:
+        default:
+            return m_state.speedMetersPerSecond * 0.35;
+    }
+}
+
+double MissileSim::climbOffsetForProgress(double progress) const {
+    const double peak = m_launchClimbPeakMeters;
+    if (peak <= 1e-6) {
+        return 0.0;
+    }
+
+    if (progress <= 0.16) {
+        return peak * smoothstep(progress / 0.16);
+    }
+    if (progress <= 0.72) {
+        const double t = (progress - 0.16) / 0.56;
+        return lerp(peak, peak * 0.24, smoothstep(t));
+    }
+    const double t = std::clamp((progress - 0.72) / 0.28, 0.0, 1.0);
+    return lerp(peak * 0.24, 0.0, smoothstep(t));
 }
 
 osgEarth::GeoPoint MissileSim::sampleByDistance(double traveledMeters) const {
@@ -188,11 +228,17 @@ osgEarth::GeoPoint MissileSim::sampleByDistance(double traveledMeters) const {
         srs = osgEarth::SpatialReference::get("wgs84");
     }
 
+    const double progress = m_state.totalMeters > 1e-6
+                                ? std::clamp(traveledMeters / m_state.totalMeters, 0.0, 1.0)
+                                : 0.0;
+    const double baseAlt = lerp(a.z(), b.z(), t);
+    const double alt = baseAlt + climbOffsetForProgress(progress);
+
     return osgEarth::GeoPoint(
         srs,
         lerp(a.x(), b.x(), t),
         lerp(a.y(), b.y(), t),
-        lerp(a.z(), b.z(), t),
+        alt,
         osgEarth::ALTMODE_ABSOLUTE);
 }
 

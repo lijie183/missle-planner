@@ -14,6 +14,7 @@ class Geode;
 class Group;
 class MatrixTransform;
 class Node;
+class ShapeDrawable;
 }
 
 namespace osgViewer {
@@ -53,15 +54,23 @@ public:
         osg::ref_ptr<osg::Node> startMarker;
         osg::ref_ptr<osg::Node> targetMarker;
         osg::ref_ptr<osg::Node> impactNode;
+        osg::ref_ptr<osg::MatrixTransform> exhaustNode;
+        osg::ref_ptr<osg::ShapeDrawable> exhaustDrawable;
         osgEarth::GeoPoint startPoint;
         osgEarth::GeoPoint targetPoint;
         osgEarth::GeoPoint missilePoint;
+        osgEarth::GeoPoint previousPoint;
         std::vector<osgEarth::GeoPoint> route;
         std::vector<osgEarth::GeoPoint> trail;
         osg::Vec4 color;
+        double speedMetersPerSecond = 0.0;
+        double headingDeg = 0.0;
+        double pitchDeg = 0.0;
+        double flamePhase = 0.0;
         bool hasStart = false;
         bool hasTarget = false;
         bool hasMissile = false;
+        bool hasPreviousPoint = false;
         bool followEnabled = false;
         int followTickCounter = 0;
     };
@@ -96,6 +105,7 @@ public:
     void setMissileTargetPoint(int index, const osgEarth::GeoPoint& point);
     void setMissileRoute(int index, const std::vector<osgEarth::GeoPoint>& route);
     void setMissilePosition(int index, const osgEarth::GeoPoint& position);
+    void setMissileTelemetry(int index, double speedMetersPerSecond, double elapsedSeconds);
     void setMissileColor(int index, const osg::Vec4& color);
     void clearMissile(int index);
     void showMissileImpact(int index, const osgEarth::GeoPoint& point);
@@ -172,6 +182,7 @@ private:
     QString m_realEarthSourcePath;
     GlobeMode m_globeMode = GlobeMode::Realistic;
     int m_followTickCounter = 0;
+    int m_activeMissileIndex = -1;
 
     std::vector<mission::ThreatZone> m_threats;
     std::vector<osgEarth::GeoPoint> m_route;

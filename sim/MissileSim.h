@@ -40,11 +40,14 @@ public:
 private:
     Phase phaseForProgress(double progress) const;
     osgEarth::GeoPoint sampleByDistance(double traveledMeters) const;
+    double desiredSpeedForPhase(Phase phase) const;
+    double climbOffsetForProgress(double progress) const;
 
     std::vector<osgEarth::GeoPoint> m_route;
     std::vector<double> m_segmentLengths;
     std::vector<double> m_cumulativeLengths;
     State m_state;
+    double m_launchClimbPeakMeters = 0.0;
 };
 
 }  // namespace mission

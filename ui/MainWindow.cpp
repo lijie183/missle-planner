@@ -467,6 +467,12 @@ void MainWindow::onSimulationTick() {
         }
 
         updateTelemetryPanel(static_cast<int>(i), missilePoint, rt.sim.state(), realDeltaSeconds);
+        if (m_earthWidget != nullptr) {
+            m_earthWidget->setMissileTelemetry(
+                static_cast<int>(i),
+                rt.sim.state().currentSpeedMetersPerSecond,
+                rt.sim.state().elapsedSeconds);
+        }
 
         if (!rt.sim.isRunning()) {
             rt.active = false;

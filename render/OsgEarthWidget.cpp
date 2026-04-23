@@ -306,6 +306,18 @@ double headingDegrees(const osgEarth::GeoPoint& from, const osgEarth::GeoPoint& 
     return heading;
 }
 
+double pitchDegrees(const osgEarth::GeoPoint& from, const osgEarth::GeoPoint& to) {
+    const double meanLatRad = toRadians((from.y() + to.y()) * 0.5);
+    const double dx = (to.x() - from.x()) * kMetersPerLatDegree * std::max(0.1, std::cos(meanLatRad));
+    const double dy = (to.y() - from.y()) * kMetersPerLatDegree;
+    const double horizontal = std::sqrt(dx * dx + dy * dy);
+    const double dz = to.z() - from.z();
+    if (horizontal < 1e-6 && std::abs(dz) < 1e-6) {
+        return 0.0;
+    }
+    return std::atan2(dz, std::max(1e-3, horizontal)) * 57.29577951308232;
+}
+
 osg::ref_ptr<osg::Image> tryLoadEarthTextureImage() {
     const std::array<std::string, 6> imageCandidates = {
         "resources/earth_day.jpg",
@@ -478,6 +490,84 @@ osg::ref_ptr<osg::Node> buildMarkerNode(const osgEarth::GeoPoint& point, const o
 
     worldTransform->addChild(geode.get());
     return worldTransform;
+}
+
+osg::ref_ptr<osg::Group> buildMissileModel(
+    const osg::Vec4& bodyColor,
+    osg::ref_ptr<osg::MatrixTransform>& outExhaustNode,
+    osg::ref_ptr<osg::ShapeDrawable>& outExhaustDrawable) {
+    osg::ref_ptr<osg::Group> root = new osg::Group;
+
+    osg::ref_ptr<osg::Geode> bodyGeode = new osg::Geode;
+
+    osg::ref_ptr<osg::ShapeDrawable> fuselage = new osg::ShapeDrawable(
+        new osg::Cylinder(osg::Vec3(0.0f, 0.0f, -600.0f), 620.0f, 5600.0f));
+    fuselage->setColor(osg::Vec4(
+        std::min(1.0f, bodyColor.r() * 0.7f + 0.25f),
+        std::min(1.0f, bodyColor.g() * 0.7f + 0.25f),
+        std::min(1.0f, bodyColor.b() * 0.7f + 0.25f),
+        0.98f));
+    bodyGeode->addDrawable(fuselage.get());
+
+    osg::ref_ptr<osg::ShapeDrawable> nose = new osg::ShapeDrawable(
+        new osg::Cone(osg::Vec3(0.0f, 0.0f, 2600.0f), 620.0f, 1900.0f));
+    nose->setColor(osg::Vec4(0.94f, 0.97f, 1.0f, 1.0f));
+    bodyGeode->addDrawable(nose.get());
+
+    osg::ref_ptr<osg::ShapeDrawable> ring = new osg::ShapeDrawable(
+        new osg::Cylinder(osg::Vec3(0.0f, 0.0f, 1200.0f), 680.0f, 260.0f));
+    ring->setColor(osg::Vec4(0.16f, 0.20f, 0.26f, 1.0f));
+    bodyGeode->addDrawable(ring.get());
+
+    osg::StateSet* bodyState = bodyGeode->getOrCreateStateSet();
+    bodyState->setMode(GL_BLEND, osg::StateAttribute::ON);
+    bodyState->setMode(GL_DEPTH_TEST, osg::StateAttribute::ON);
+    bodyState->setMode(GL_LIGHTING, osg::StateAttribute::ON);
+    root->addChild(bodyGeode.get());
+
+    osg::ref_ptr<osg::Geode> finGeode = new osg::Geode;
+    auto addFin = [&](double yawRad) {
+        const float c = static_cast<float>(std::cos(yawRad));
+        const float s = static_cast<float>(std::sin(yawRad));
+        osg::ref_ptr<osg::Vec3Array> finVertices = new osg::Vec3Array;
+        finVertices->push_back(osg::Vec3(720.0f * c, 720.0f * s, -1500.0f));
+        finVertices->push_back(osg::Vec3(2050.0f * c, 2050.0f * s, -1600.0f));
+        finVertices->push_back(osg::Vec3(1250.0f * c, 1250.0f * s, -2600.0f));
+
+        osg::ref_ptr<osg::Geometry> fin = new osg::Geometry;
+        fin->setVertexArray(finVertices.get());
+        fin->addPrimitiveSet(new osg::DrawArrays(GL_TRIANGLES, 0, 3));
+
+        osg::ref_ptr<osg::Vec4Array> finColors = new osg::Vec4Array;
+        finColors->push_back(osg::Vec4(0.16f, 0.20f, 0.28f, 0.95f));
+        fin->setColorArray(finColors.get(), osg::Array::BIND_OVERALL);
+        finGeode->addDrawable(fin.get());
+    };
+
+    addFin(0.0);
+    addFin(3.14159265358979323846 * 0.5);
+    addFin(3.14159265358979323846);
+    addFin(3.14159265358979323846 * 1.5);
+    root->addChild(finGeode.get());
+
+    outExhaustNode = new osg::MatrixTransform;
+    outExhaustNode->setMatrix(osg::Matrix::translate(0.0, 0.0, -3500.0));
+
+    osg::ref_ptr<osg::Geode> exhaustGeode = new osg::Geode;
+    outExhaustDrawable = new osg::ShapeDrawable(
+        new osg::Cone(osg::Vec3(0.0f, 0.0f, -450.0f), 460.0f, 2200.0f));
+    outExhaustDrawable->setColor(osg::Vec4(1.0f, 0.66f, 0.18f, 0.86f));
+    exhaustGeode->addDrawable(outExhaustDrawable.get());
+
+    osg::StateSet* exhaustState = exhaustGeode->getOrCreateStateSet();
+    exhaustState->setMode(GL_BLEND, osg::StateAttribute::ON);
+    exhaustState->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+    exhaustState->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
+    exhaustState->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
+    outExhaustNode->addChild(exhaustGeode.get());
+
+    root->addChild(outExhaustNode.get());
+    return root;
 }
 
 }  // namespace
@@ -666,14 +756,20 @@ void OsgEarthWidget::clearMissile() {
 
 void OsgEarthWidget::resetMissionGraphics() {
     m_threats.clear();
+    m_activeMissileIndex = -1;
     for (auto& mv : m_missileVisuals) {
         mv.route.clear();
         mv.trail.clear();
         mv.hasStart = false;
         mv.hasTarget = false;
         mv.hasMissile = false;
+        mv.hasPreviousPoint = false;
         mv.followEnabled = false;
         mv.followTickCounter = 0;
+        mv.speedMetersPerSecond = 0.0;
+        mv.headingDeg = 0.0;
+        mv.pitchDeg = 0.0;
+        mv.flamePhase = 0.0;
     }
 
     rebuildThreatGeometry();
@@ -684,6 +780,7 @@ void OsgEarthWidget::resetMissionGraphics() {
         clearMissileImpact(i);
         clearMissile(i);
     }
+
 }
 
 void OsgEarthWidget::zoomIn() {
@@ -712,17 +809,12 @@ void OsgEarthWidget::setMissileCount(int count) {
         mv.missileNode = new osg::MatrixTransform;
         mv.missileNode->setNodeMask(0u);
 
-        osg::ref_ptr<osg::Geode> missileGeode = new osg::Geode;
-        osg::ref_ptr<osg::ShapeDrawable> missileDrawable = new osg::ShapeDrawable(
-            new osg::Cone(osg::Vec3(0.0f, 0.0f, 0.0f), 1800.0f, 5000.0f));
-        missileDrawable->setColor(mv.color);
-        missileGeode->addDrawable(missileDrawable.get());
-
-        osg::StateSet* missileState = missileGeode->getOrCreateStateSet();
-        missileState->setMode(GL_BLEND, osg::StateAttribute::ON);
-        missileState->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
-        missileState->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
-        mv.missileNode->addChild(missileGeode.get());
+        osg::ref_ptr<osg::MatrixTransform> exhaustNode;
+        osg::ref_ptr<osg::ShapeDrawable> exhaustDrawable;
+        osg::ref_ptr<osg::Group> missileModel = buildMissileModel(mv.color, exhaustNode, exhaustDrawable);
+        mv.exhaustNode = exhaustNode;
+        mv.exhaustDrawable = exhaustDrawable;
+        mv.missileNode->addChild(missileModel.get());
 
         mv.group->addChild(mv.routeGeode.get());
         mv.group->addChild(mv.trailGeode.get());
@@ -738,6 +830,10 @@ void OsgEarthWidget::setMissileCount(int count) {
             m_overlayGroup->removeChild(mv.group.get());
         }
         m_missileVisuals.pop_back();
+    }
+
+    if (m_activeMissileIndex >= static_cast<int>(m_missileVisuals.size())) {
+        m_activeMissileIndex = -1;
     }
 }
 
@@ -796,14 +892,35 @@ void OsgEarthWidget::setMissilePosition(int index, const osgEarth::GeoPoint& pos
             osg::Quat rotation;
             rotation.makeRotate(osg::Vec3d(0.0, 0.0, 1.0), direction);
             pose = osg::Matrix::rotate(rotation) * osg::Matrix::translate(world);
+
+            mv.headingDeg = headingDegrees(mv.missilePoint, position);
+            mv.pitchDeg = pitchDegrees(mv.missilePoint, position);
         }
     }
 
+    mv.previousPoint = mv.missilePoint;
+    mv.hasPreviousPoint = mv.hasMissile;
     mv.missilePoint = position;
     mv.hasMissile = true;
+    m_activeMissileIndex = index;
 
     mv.missileNode->setMatrix(pose);
     mv.missileNode->setNodeMask(~0u);
+
+    if (mv.exhaustNode.valid() && mv.exhaustDrawable.valid()) {
+        mv.flamePhase += 0.35;
+        const double speedRatio = std::clamp(mv.speedMetersPerSecond / 950.0, 0.0, 1.0);
+        const double pulse = 0.72 + 0.28 * std::sin(mv.flamePhase);
+        const double scale = 0.55 + speedRatio * 0.95;
+        mv.exhaustNode->setMatrix(
+            osg::Matrix::scale(1.0, 1.0, scale * pulse) *
+            osg::Matrix::translate(0.0, 0.0, -3500.0));
+        mv.exhaustDrawable->setColor(osg::Vec4(
+            1.0f,
+            static_cast<float>(0.50 + 0.35 * (1.0 - speedRatio)),
+            static_cast<float>(0.12 + 0.22 * (1.0 - speedRatio)),
+            static_cast<float>(0.68 + 0.22 * pulse)));
+    }
 
     if (mv.trail.empty() || approximateDistanceMeters(mv.trail.back(), position) > 600.0) {
         mv.trail.push_back(position);
@@ -816,6 +933,19 @@ void OsgEarthWidget::setMissilePosition(int index, const osgEarth::GeoPoint& pos
             mv.followTickCounter = 0;
             focusOnPoint(position, 120000.0);
         }
+    }
+
+}
+
+void OsgEarthWidget::setMissileTelemetry(int index, double speedMetersPerSecond, double elapsedSeconds) {
+    Q_UNUSED(elapsedSeconds);
+    if (index < 0 || index >= static_cast<int>(m_missileVisuals.size())) {
+        return;
+    }
+    auto& mv = m_missileVisuals[static_cast<std::size_t>(index)];
+    mv.speedMetersPerSecond = std::max(0.0, speedMetersPerSecond);
+    if (mv.hasMissile) {
+        m_activeMissileIndex = index;
     }
 }
 
@@ -830,9 +960,15 @@ void OsgEarthWidget::clearMissile(int index) {
     }
     auto& mv = m_missileVisuals[static_cast<std::size_t>(index)];
     mv.hasMissile = false;
+    mv.hasPreviousPoint = false;
+    mv.speedMetersPerSecond = 0.0;
     mv.followTickCounter = 0;
     if (mv.missileNode.valid()) {
         mv.missileNode->setNodeMask(0u);
+    }
+
+    if (m_activeMissileIndex == index) {
+        m_activeMissileIndex = -1;
     }
 }
 
@@ -892,6 +1028,9 @@ void OsgEarthWidget::setFollowMissile(int index, bool enabled) {
     }
     m_missileVisuals[static_cast<std::size_t>(index)].followEnabled = enabled;
     m_missileVisuals[static_cast<std::size_t>(index)].followTickCounter = 0;
+    if (enabled) {
+        m_activeMissileIndex = index;
+    }
 }
 
 void OsgEarthWidget::focusOnAllRoutes() {
@@ -940,7 +1079,6 @@ void OsgEarthWidget::focusOnAllRoutes() {
     const double metersPerLonDeg = kMetersPerLatDegree * std::max(0.1, std::cos(meanLatRad));
     const double horizontalSpan = std::max(lonSpan * metersPerLonDeg, latSpan * kMetersPerLatDegree);
     const double rangeMeters = std::clamp(horizontalSpan * 1.6 + 60000.0, 90000.0, 2000000.0);
-
     focusOnPoint(center, rangeMeters);
 }
 
