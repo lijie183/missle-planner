@@ -745,6 +745,10 @@ int OsgEarthWidget::missileCount() const {
     return static_cast<int>(m_missileVisuals.size());
 }
 
+void OsgEarthWidget::setMissileNames(const std::vector<std::string>& names) {
+    m_missileNames = names;
+}
+
 void OsgEarthWidget::setMissileStartPoint(int index, const osgEarth::GeoPoint& point) {
     ensureMissileVisual(index);
     auto& mv = m_missileVisuals[static_cast<std::size_t>(index)];

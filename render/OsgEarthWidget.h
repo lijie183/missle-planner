@@ -91,6 +91,7 @@ public:
 
     void setMissileCount(int count);
     int missileCount() const;
+    void setMissileNames(const std::vector<std::string>& names);
     void setMissileStartPoint(int index, const osgEarth::GeoPoint& point);
     void setMissileTargetPoint(int index, const osgEarth::GeoPoint& point);
     void setMissileRoute(int index, const std::vector<osgEarth::GeoPoint>& route);
@@ -177,4 +178,5 @@ private:
     std::vector<osgEarth::GeoPoint> m_trail;
 
     std::vector<MissileVisual> m_missileVisuals;
+    std::vector<std::string> m_missileNames;
 };

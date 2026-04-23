@@ -884,7 +884,7 @@ void MainWindow::buildUi() {
         QStringLiteral("导弹"), QStringLiteral("目标"), QStringLiteral("优先级"), QStringLiteral("状态")});
     m_assignmentTable->horizontalHeader()->setStretchLastSection(true);
     m_assignmentTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
-    m_assignmentTable->setMaximumHeight(120);
+    m_assignmentTable->setMaximumHeight(220);
     m_assignmentTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_assignmentTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     assignLayout->addWidget(m_assignmentTable);
@@ -932,22 +932,12 @@ void MainWindow::buildUi() {
 
     executeLayout->addWidget(replanGroup);
 
-    auto* interactionHint = new QGroupBox(QStringLiteral("交互说明"), executeTab);
-    auto* hintLayout = new QVBoxLayout(interactionHint);
-    auto* hintLabel = new QLabel(
-        QStringLiteral("左键拖动：旋转地球 | 滚轮：缩放 | 右键拖动：平移视角\n"
-                       "多导弹场景：不同颜色区分导弹航迹 | 可模拟导弹失效并动态重规划"),
-        interactionHint);
-    hintLabel->setWordWrap(true);
-    hintLayout->addWidget(hintLabel);
-
     auto* zoomButtonsLayout = new QHBoxLayout;
     auto* zoomOutButton = new QPushButton(QStringLiteral("- 缩小"), executeTab);
     auto* zoomInButton = new QPushButton(QStringLiteral("+ 放大"), executeTab);
     zoomButtonsLayout->addWidget(zoomOutButton);
     zoomButtonsLayout->addWidget(zoomInButton);
 
-    executeLayout->addWidget(interactionHint);
     executeLayout->addLayout(zoomButtonsLayout);
     executeLayout->addStretch(1);
 
@@ -1058,6 +1048,7 @@ void MainWindow::refreshThreatList() {
 void MainWindow::refreshMissileList() {
     if (m_missileList == nullptr) return;
 
+    m_missileList->blockSignals(true);
     m_missileList->clear();
     for (const auto& mc : m_missileConfigs) {
         m_missileList->addItem(QStringLiteral("%1  %2°E %3°N")
@@ -1065,6 +1056,7 @@ void MainWindow::refreshMissileList() {
                                    .arg(mc.startLonDeg, 0, 'f', 2)
                                    .arg(mc.startLatDeg, 0, 'f', 2));
     }
+    m_missileList->blockSignals(false);
 
     if (m_telemetryWidget != nullptr) {
         m_telemetryWidget->setMissileCount(static_cast<int>(m_missileConfigs.size()));

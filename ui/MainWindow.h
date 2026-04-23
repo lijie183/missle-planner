@@ -70,6 +70,7 @@ private:
     void refreshThreatList();
     void refreshMissileList();
     void refreshTargetList();
+    void buildMissileLegend();
     void refreshMetrics(const mission::PlanMetrics& metrics);
     void refreshSceneDataSourceLabel();
     void resetTelemetryPanel();
@@ -89,6 +90,7 @@ private:
 
     OsgEarthWidget* m_earthWidget = nullptr;
     TelemetryPlotWidget* m_telemetryWidget = nullptr;
+    QWidget* m_missileLegend = nullptr;
 
     QListWidget* m_missileList = nullptr;
     QDoubleSpinBox* m_missileLon = nullptr;
