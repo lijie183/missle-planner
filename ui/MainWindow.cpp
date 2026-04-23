@@ -5,6 +5,7 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDateTime>
 #include <QDoubleSpinBox>
 #include <QFont>
 #include <QFormLayout>
@@ -13,10 +14,13 @@
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QDir>
+#include <QFileDialog>
 #include <QLabel>
 #include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSaveFile>
 #include <QSpinBox>
 #include <QStatusBar>
 #include <QTabWidget>
@@ -28,6 +32,7 @@
 #include <osgEarth/SpatialReference>
 
 #include "render/OsgEarthWidget.h"
+#include "ui/FlightReportExporter.h"
 #include "ui/TelemetryPlotWidget.h"
 
 namespace {
@@ -303,6 +308,7 @@ void MainWindow::onPlanRoute() {
     m_missileRuntimes.resize(m_missileConfigs.size());
     for (std::size_t i = 0; i < m_missileConfigs.size(); ++i) {
         m_missileRuntimes[i].config = m_missileConfigs[i];
+        m_missileRuntimes[i].telemetryHistory.clear();
     }
 
     const auto* wgs84 = osgEarth::SpatialReference::get("wgs84");
@@ -337,6 +343,7 @@ void MainWindow::onPlanRoute() {
 
     updateAssignmentTable();
     updateOverallMetrics();
+    setExportEnabled(false);
 
     if (!m_lastMultiResult.assignments.empty() && m_lastMultiResult.assignments.front().planned) {
         refreshMetrics(m_lastMultiResult.assignments.front().planResult.metrics);
@@ -398,6 +405,12 @@ void MainWindow::onStartSimulation() {
     m_lastTickMs = 0;
 
     resetTelemetryPanel();
+    for (auto& rt : m_missileRuntimes) {
+        rt.telemetryHistory.clear();
+        rt.hasTelemetryPrevPoint = false;
+        rt.prevTelemetrySpeed = 0.0;
+    }
+    setExportEnabled(false);
 
     m_failureMissileCombo->clear();
     for (std::size_t i = 0; i < m_missileRuntimes.size(); ++i) {
@@ -436,7 +449,26 @@ void MainWindow::onSimulationTick() {
 
         osgEarth::GeoPoint missilePoint;
         const bool ok = rt.sim.update(scaledDeltaSeconds, missilePoint);
-        if (!ok || !rt.sim.isRunning()) {
+        if (!ok) {
+            rt.active = false;
+            if (rt.sim.state().phase == mission::MissileSim::Phase::Completed) {
+                rt.completed = true;
+            }
+
+            if (m_earthWidget != nullptr && !rt.route.empty()) {
+                m_earthWidget->setMissilePosition(static_cast<int>(i), rt.route.back());
+                m_earthWidget->showMissileImpact(static_cast<int>(i), rt.route.back());
+            }
+
+            if (firstActiveIndex < 0) {
+                firstActiveIndex = static_cast<int>(i);
+            }
+            continue;
+        }
+
+        updateTelemetryPanel(static_cast<int>(i), missilePoint, rt.sim.state(), realDeltaSeconds);
+
+        if (!rt.sim.isRunning()) {
             rt.active = false;
             rt.completed = true;
 
@@ -455,8 +487,6 @@ void MainWindow::onSimulationTick() {
         if (m_earthWidget != nullptr) {
             m_earthWidget->setMissilePosition(static_cast<int>(i), missilePoint);
         }
-
-        updateTelemetryPanel(static_cast<int>(i), missilePoint, rt.sim.state(), realDeltaSeconds);
 
         if (firstActiveIndex < 0) {
             firstActiveIndex = static_cast<int>(i);
@@ -506,6 +536,8 @@ void MainWindow::onSimulationTick() {
                 .arg(failed)
                 .arg(static_cast<int>(m_missileRuntimes.size())),
             5000);
+
+        setExportEnabled(true);
     }
 }
 
@@ -531,6 +563,7 @@ void MainWindow::onSimulateFailure() {
     m_failureMissileCombo->removeItem(m_failureMissileCombo->currentIndex());
 
     updateOverallMetrics();
+    setExportEnabled(false);
     statusBar()->showMessage(
         QStringLiteral("导弹 %1 已失效。").arg(QString::fromStdString(rt.config.name)),
         3000);
@@ -683,17 +716,8 @@ void MainWindow::buildUi() {
         QStringLiteral("真实卫星地球（离线数据优先）"),
         QStringLiteral("演示态势地球（简化模型）")});
     m_sceneDataSourceValue = new QLabel(QStringLiteral("待检测（运行后加载）"), sceneGroup);
-    auto* offlineHint = new QLabel(
-        QStringLiteral("离线数据推荐路径:\n"
-                       "data/earth/highres_global.earth\n"
-                       "可选: data/earth/world.earth / resources/world.earth / default.earth"),
-        sceneGroup);
-    offlineHint->setWordWrap(true);
-    offlineHint->setStyleSheet(QStringLiteral("color: #8fb8dd;"));
-    offlineHint->setMaximumHeight(48);
     sceneLayout->addRow(QStringLiteral("地球模型"), m_globeModeCombo);
     sceneLayout->addRow(QStringLiteral("数据源"), m_sceneDataSourceValue);
-    sceneLayout->addRow(QStringLiteral("离线放置"), offlineHint);
     panelLayout->addWidget(sceneGroup);
 
     auto* tabs = new QTabWidget(panel);
@@ -935,8 +959,11 @@ void MainWindow::buildUi() {
     auto* zoomButtonsLayout = new QHBoxLayout;
     auto* zoomOutButton = new QPushButton(QStringLiteral("- 缩小"), executeTab);
     auto* zoomInButton = new QPushButton(QStringLiteral("+ 放大"), executeTab);
+    m_exportHtmlButton = new QPushButton(QStringLiteral("导出 HTML 报告"), executeTab);
+    m_exportHtmlButton->setEnabled(false);
     zoomButtonsLayout->addWidget(zoomOutButton);
     zoomButtonsLayout->addWidget(zoomInButton);
+    zoomButtonsLayout->addWidget(m_exportHtmlButton);
 
     executeLayout->addLayout(zoomButtonsLayout);
     executeLayout->addStretch(1);
@@ -981,6 +1008,7 @@ void MainWindow::buildUi() {
     connect(simButton, &QPushButton::clicked, this, &MainWindow::onStartSimulation);
     connect(failButton, &QPushButton::clicked, this, &MainWindow::onSimulateFailure);
     connect(replanButton, &QPushButton::clicked, this, &MainWindow::onDynamicReplan);
+    connect(m_exportHtmlButton, &QPushButton::clicked, this, &MainWindow::onExportHtmlReport);
 
     connect(missileAddBtn, &QPushButton::clicked, this, &MainWindow::onAddMissile);
     connect(missileRemoveBtn, &QPushButton::clicked, this, &MainWindow::onRemoveMissile);
@@ -1112,6 +1140,12 @@ void MainWindow::resetTelemetryPanel() {
     }
 }
 
+void MainWindow::setExportEnabled(bool enabled) {
+    if (m_exportHtmlButton != nullptr) {
+        m_exportHtmlButton->setEnabled(enabled);
+    }
+}
+
 void MainWindow::updateTelemetryPanel(
     int missileIndex,
     const osgEarth::GeoPoint& missilePoint,
@@ -1141,10 +1175,71 @@ void MainWindow::updateTelemetryPanel(
     sample.remainingMeters = remaining;
     sample.accelerationMetersPerSecond2 = rt.hasTelemetryPrevPoint ? accel : 0.0;
     m_telemetryWidget->pushSample(missileIndex, sample);
+    rt.telemetryHistory.push_back(sample);
 
     rt.prevTelemetryPoint = missilePoint;
     rt.hasTelemetryPrevPoint = true;
     rt.prevTelemetrySpeed = simState.currentSpeedMetersPerSecond;
+}
+
+void MainWindow::onExportHtmlReport() {
+    if (m_missileRuntimes.empty()) {
+        QMessageBox::information(this, QStringLiteral("提示"), QStringLiteral("当前没有可导出的飞行数据。"));
+        return;
+    }
+
+    mission::FlightReportData report;
+    report.title = QStringLiteral("导弹飞行实时可视化报告");
+    report.generatedAt = QDateTime::currentDateTime();
+    report.missiles = m_missileConfigs;
+    report.targets = m_targetConfigs;
+    report.threats = m_threatZones;
+    report.planningResult = m_lastMultiResult;
+
+    for (std::size_t i = 0; i < m_missileRuntimes.size(); ++i) {
+        const auto& rt = m_missileRuntimes[i];
+        mission::FlightRouteReport routeReport;
+        routeReport.missile = rt.config;
+        routeReport.routeWaypoints = rt.route;
+        routeReport.telemetry = rt.telemetryHistory;
+
+        for (const auto& assign : m_lastMultiResult.assignments) {
+            if (assign.missileIndex == static_cast<int>(i)) {
+                routeReport.assignment = assign;
+                if (assign.targetIndex >= 0 && assign.targetIndex < static_cast<int>(m_targetConfigs.size())) {
+                    routeReport.target = m_targetConfigs[assign.targetIndex];
+                }
+                break;
+            }
+        }
+
+        report.routes.push_back(routeReport);
+    }
+
+    const QString defaultName = QDir::current().filePath(
+        QStringLiteral("flight_report_%1.html").arg(report.generatedAt.toString(QStringLiteral("yyyyMMdd_HHmmss"))));
+    const QString fileName = QFileDialog::getSaveFileName(
+        this,
+        QStringLiteral("导出 HTML 报告"),
+        defaultName,
+        QStringLiteral("HTML Files (*.html)"));
+    if (fileName.isEmpty()) {
+        return;
+    }
+
+    const QString html = mission::buildFlightReportHtml(report);
+    QSaveFile file(fileName);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QMessageBox::critical(this, QStringLiteral("导出失败"), QStringLiteral("无法创建导出文件。"));
+        return;
+    }
+
+    if (file.write(html.toUtf8()) < 0 || !file.commit()) {
+        QMessageBox::critical(this, QStringLiteral("导出失败"), QStringLiteral("HTML 内容写入失败。"));
+        return;
+    }
+
+    statusBar()->showMessage(QStringLiteral("HTML 报告已导出：%1").arg(fileName), 5000);
 }
 
 void MainWindow::updateAssignmentTable() {

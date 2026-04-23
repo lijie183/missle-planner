@@ -5,19 +5,13 @@
 #include <deque>
 #include <vector>
 
+#include "core/MissionTypes.h"
+
 class TelemetryPlotWidget : public QWidget {
     Q_OBJECT
 
 public:
-    struct Sample {
-        double timeSeconds = 0.0;
-        double speedMetersPerSecond = 0.0;
-        double altitudeMeters = 0.0;
-        double pitchDegrees = 0.0;
-        double headingDegrees = 0.0;
-        double remainingMeters = 0.0;
-        double accelerationMetersPerSecond2 = 0.0;
-    };
+    using Sample = mission::TelemetrySample;
 
     explicit TelemetryPlotWidget(QWidget* parent = nullptr);
 

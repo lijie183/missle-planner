@@ -30,6 +30,7 @@ struct MissileRuntime {
     mission::MissileConfig config;
     mission::MissileSim sim;
     std::vector<osgEarth::GeoPoint> route;
+    std::vector<mission::TelemetrySample> telemetryHistory;
     bool active = false;
     bool failed = false;
     bool completed = false;
@@ -74,6 +75,8 @@ private:
     void refreshMetrics(const mission::PlanMetrics& metrics);
     void refreshSceneDataSourceLabel();
     void resetTelemetryPanel();
+    void setExportEnabled(bool enabled);
+    void onExportHtmlReport();
     void updateTelemetryPanel(
         int missileIndex,
         const osgEarth::GeoPoint& missilePoint,
@@ -136,6 +139,7 @@ private:
     QLabel* m_successCountValue = nullptr;
     QLabel* m_failureCountValue = nullptr;
     QLabel* m_totalTargetsValue = nullptr;
+    QPushButton* m_exportHtmlButton = nullptr;
 
     QTimer m_simulationTimer;
     QElapsedTimer m_tickClock;

@@ -24,6 +24,16 @@ struct PlanMetrics {
     int visitedNodes = 0;
 };
 
+struct TelemetrySample {
+    double timeSeconds = 0.0;
+    double speedMetersPerSecond = 0.0;
+    double altitudeMeters = 0.0;
+    double pitchDegrees = 0.0;
+    double headingDegrees = 0.0;
+    double remainingMeters = 0.0;
+    double accelerationMetersPerSecond2 = 0.0;
+};
+
 struct MissionRequest {
     osgEarth::GeoPoint start;
     osgEarth::GeoPoint goal;
