@@ -1,12 +1,17 @@
 <map name="OfflineGlobal" type="geocentric" version="2">
 
-  <!-- 1. 离线全球纹理（你下载的 Natural Earth 数据） -->
+  <!-- 1. 离线全球影像（Natural Earth） -->
   <image name="OfflineEarthTexture" driver="gdal">
-    <url>data/earth/HYP_50M_SR_W.tif</url>
+    <url>imagery/NE2_50M_SR.tif</url>
     <wrap>true</wrap>
   </image>
 
-  <!-- 2. 地形光照（让纹理的浮雕效果更立体） -->
+  <!-- 2. 局部DEM高程（中国区域） -->
+  <elevation name="ChinaDEM" driver="gdal">
+    <url>dem/15-K.tif</url>
+  </elevation>
+
+  <!-- 3. 地形光照与缓存 -->
   <options>
     <lighting>true</lighting>
     <terrain skirt_ratio="0.1"/>
@@ -15,7 +20,7 @@
     </cache>
   </options>
 
-  <!-- 3. 大气光晕效果 -->
+  <!-- 4. 大气光晕效果 -->
   <extension name="sky" type="sky">
     <atmosphere>true</atmosphere>
     <sun>true</sun>

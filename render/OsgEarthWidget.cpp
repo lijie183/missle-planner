@@ -1258,6 +1258,14 @@ void OsgEarthWidget::initializeViewer() {
 
     osg::Camera* camera = m_viewer->getCamera();
     camera->setGraphicsContext(m_graphicsWindow.get());
+
+    // osgEarth terrain shaders require OSG compatibility aliases/uniforms.
+    if (osg::State* glState = m_graphicsWindow->getState(); glState != nullptr) {
+        glState->setUseVertexAttributeAliasing(true);
+        glState->resetVertexAttributeAlias(true);
+        glState->setUseModelViewAndProjectionUniforms(true);
+    }
+
     camera->setViewport(new osg::Viewport(0, 0, traits->width, traits->height));
     camera->setProjectionMatrixAsPerspective(
         35.0,
