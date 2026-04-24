@@ -7,16 +7,19 @@
   </image>
 
   <!-- 2. 局部DEM高程（中国区域） -->
-  <elevation name="ChinaDEM" driver="gdal">
+  <GDALElevation name="ChinaDEM">
     <url>dem/15-K.tif</url>
-  </elevation>
+    <no_data_value>-9999</no_data_value>
+    <min_valid_value>-12000</min_valid_value>
+    <max_valid_value>1000000</max_valid_value>
+  </GDALElevation>
 
   <!-- 3. 地形光照与缓存 -->
   <options>
     <lighting>true</lighting>
-    <terrain skirt_ratio="0.1"/>
+    <terrain skirt_ratio="0.05" vertical_scale="8.0"/>
     <cache type="filesystem">
-      <path>data/earth/cache</path>
+      <path>data/earth/cache_dem_v2</path>
     </cache>
   </options>
 

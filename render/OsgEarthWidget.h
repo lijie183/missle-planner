@@ -138,6 +138,9 @@ private:
     void rebuildMarkers();
     void rebuildRouteGeometry();
     void rebuildTrailGeometry();
+    void logTerrainDiagnostics();
+    bool sampleTerrainElevationMeters(double lonDeg, double latDeg, double& outMeters) const;
+    double clampAltitudeAboveTerrain(double lonDeg, double latDeg, double desiredAltMeters, double minClearanceMeters) const;
 
     void ensureMissileVisual(int index);
     void rebuildMissileRouteGeometry(int index);
@@ -179,6 +182,7 @@ private:
     bool m_hasRealEarthDataset = false;
     bool m_realEarthFromLocalFile = false;
     bool m_sceneCreationAttempted = false;
+    bool m_loggedTerrainDiagnostics = false;
     QString m_realEarthSourcePath;
     GlobeMode m_globeMode = GlobeMode::Realistic;
     int m_followTickCounter = 0;

@@ -16,6 +16,7 @@
 #include <QKeyEvent>
 #include <QTimer>
 #include <QFileInfo>
+#include <QDebug>
 
 #include <osg/Camera>
 #include <osg/Geometry>
@@ -49,7 +50,10 @@
 #include <osgEarth/Map>
 #include <osgEarth/MapNode>
 #include <osgEarth/Profile>
+#include <osgEarth/Registry>
 #include <osgEarth/SpatialReference>
+#include <osgEarth/TileLayer>
+#include <osgEarth/ElevationLayer>
 #include <osgEarth/EarthManipulator>
 #include <osgEarth/Viewpoint>
 #include <osgEarth/XYZ>
@@ -832,6 +836,8 @@ void OsgEarthWidget::setMissileCount(int count) {
         m_missileVisuals.pop_back();
     }
 
+    osgEarth::Registry::shaderGenerator().run(m_overlayGroup.get(), "mission-overlay");
+
     if (m_activeMissileIndex >= static_cast<int>(m_missileVisuals.size())) {
         m_activeMissileIndex = -1;
     }
@@ -849,6 +855,7 @@ void OsgEarthWidget::setMissileStartPoint(int index, const osgEarth::GeoPoint& p
     ensureMissileVisual(index);
     auto& mv = m_missileVisuals[static_cast<std::size_t>(index)];
     mv.startPoint = point;
+    mv.startPoint.z() = clampAltitudeAboveTerrain(point.x(), point.y(), point.z(), 80.0);
     mv.hasStart = true;
     rebuildMissileMarker(index);
 }
@@ -857,6 +864,7 @@ void OsgEarthWidget::setMissileTargetPoint(int index, const osgEarth::GeoPoint& 
     ensureMissileVisual(index);
     auto& mv = m_missileVisuals[static_cast<std::size_t>(index)];
     mv.targetPoint = point;
+    mv.targetPoint.z() = clampAltitudeAboveTerrain(point.x(), point.y(), point.z(), 80.0);
     mv.hasTarget = true;
     rebuildMissileMarker(index);
 }
@@ -864,7 +872,13 @@ void OsgEarthWidget::setMissileTargetPoint(int index, const osgEarth::GeoPoint& 
 void OsgEarthWidget::setMissileRoute(int index, const std::vector<osgEarth::GeoPoint>& route) {
     ensureMissileVisual(index);
     auto& mv = m_missileVisuals[static_cast<std::size_t>(index)];
-    mv.route = route;
+    mv.route.clear();
+    mv.route.reserve(route.size());
+    for (const auto& point : route) {
+        osgEarth::GeoPoint adjusted = point;
+        adjusted.z() = clampAltitudeAboveTerrain(point.x(), point.y(), point.z(), 50.0);
+        mv.route.push_back(adjusted);
+    }
     mv.trail.clear();
     rebuildMissileRouteGeometry(index);
     rebuildMissileTrailGeometry(index);
@@ -879,8 +893,11 @@ void OsgEarthWidget::setMissilePosition(int index, const osgEarth::GeoPoint& pos
         return;
     }
 
+    osgEarth::GeoPoint adjustedPosition = position;
+    adjustedPosition.z() = clampAltitudeAboveTerrain(position.x(), position.y(), position.z(), 40.0);
+
     osg::Vec3d world;
-    position.toWorld(world);
+    adjustedPosition.toWorld(world);
 
     osg::Matrixd pose = osg::Matrix::translate(world);
     if (mv.hasMissile && mv.missilePoint.isValid()) {
@@ -893,14 +910,14 @@ void OsgEarthWidget::setMissilePosition(int index, const osgEarth::GeoPoint& pos
             rotation.makeRotate(osg::Vec3d(0.0, 0.0, 1.0), direction);
             pose = osg::Matrix::rotate(rotation) * osg::Matrix::translate(world);
 
-            mv.headingDeg = headingDegrees(mv.missilePoint, position);
-            mv.pitchDeg = pitchDegrees(mv.missilePoint, position);
+            mv.headingDeg = headingDegrees(mv.missilePoint, adjustedPosition);
+            mv.pitchDeg = pitchDegrees(mv.missilePoint, adjustedPosition);
         }
     }
 
     mv.previousPoint = mv.missilePoint;
     mv.hasPreviousPoint = mv.hasMissile;
-    mv.missilePoint = position;
+    mv.missilePoint = adjustedPosition;
     mv.hasMissile = true;
     m_activeMissileIndex = index;
 
@@ -1302,6 +1319,7 @@ void OsgEarthWidget::ensureSceneCreated() {
     m_hasRealEarthDataset = false;
     m_realEarthFromLocalFile = false;
     m_realEarthSourcePath.clear();
+    m_loggedTerrainDiagnostics = false;
     m_mapNode = nullptr;
 
     std::string loadedEarthPath;
@@ -1334,11 +1352,123 @@ void OsgEarthWidget::ensureSceneCreated() {
     m_threatGroup = new osg::Group;
     m_markerGroup = new osg::Group;
 
+    osg::StateSet* overlayState = m_overlayGroup->getOrCreateStateSet();
+    overlayState->setMode(GL_LIGHTING, osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE);
+    overlayState->setMode(GL_BLEND, osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+    overlayState->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE);
+    overlayState->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
+
     m_overlayGroup->addChild(m_threatGroup.get());
 
     m_root->addChild(m_overlayGroup.get());
 
     rebuildThreatGeometry();
+    logTerrainDiagnostics();
+}
+
+void OsgEarthWidget::logTerrainDiagnostics() {
+    if (m_loggedTerrainDiagnostics) {
+        return;
+    }
+    m_loggedTerrainDiagnostics = true;
+
+    qInfo().noquote() << QStringLiteral("[TerrainDiag] source=%1").arg(m_realEarthSourcePath);
+
+    const std::array<QString, 4> demCandidates = {
+        QStringLiteral("dem/15-K.tif"),
+        QStringLiteral("data/earth/dem/15-K.tif"),
+        QStringLiteral("./dem/15-K.tif"),
+        QStringLiteral("./data/earth/dem/15-K.tif")};
+
+    for (const auto& path : demCandidates) {
+        const QFileInfo info(path);
+        qInfo().noquote() << QStringLiteral("[TerrainDiag] demCandidate path=%1 exists=%2 size=%3")
+                                 .arg(path)
+                                 .arg(info.exists() ? QStringLiteral("true") : QStringLiteral("false"))
+                                 .arg(info.exists() ? QString::number(info.size()) : QStringLiteral("-1"));
+    }
+
+    if (!m_mapNode.valid()) {
+        qWarning() << "[TerrainDiag] MapNode is null, no terrain diagnostics available.";
+        return;
+    }
+
+    osgEarth::Map* map = m_mapNode->getMap();
+    if (map == nullptr) {
+        qWarning() << "[TerrainDiag] Map is null on MapNode.";
+        return;
+    }
+
+    osgEarth::LayerVector layers;
+    map->getLayers(layers);
+
+    int elevationLayerCount = 0;
+    for (std::size_t i = 0; i < layers.size(); ++i) {
+        osgEarth::Layer* layer = layers[i].get();
+        if (layer == nullptr) {
+            continue;
+        }
+
+        const auto& status = layer->getStatus();
+        const osgEarth::GeoExtent& extent = layer->getExtent();
+        QString extentText = QStringLiteral("extent=INVALID");
+        if (extent.isValid()) {
+            extentText = QStringLiteral("extent=[%1,%2]-[%3,%4]")
+                             .arg(extent.xMin(), 0, 'f', 4)
+                             .arg(extent.yMin(), 0, 'f', 4)
+                             .arg(extent.xMax(), 0, 'f', 4)
+                             .arg(extent.yMax(), 0, 'f', 4);
+        }
+
+        qInfo().noquote() << QStringLiteral("[TerrainDiag] layer[%1] name='%2' class=%3 status=%4 %5")
+                                 .arg(static_cast<int>(i))
+                                 .arg(QString::fromStdString(layer->getName()))
+                                 .arg(layer->className())
+                                 .arg(QString::fromStdString(status.toString()))
+                                 .arg(extentText);
+
+        if (auto* tileLayer = dynamic_cast<osgEarth::TileLayer*>(layer)) {
+            qInfo().noquote() << QStringLiteral("[TerrainDiag] tileLayer name='%1' minL=%2 maxL=%3 dataExtents=%4 noData=%5 minValid=%6 maxValid=%7")
+                                     .arg(QString::fromStdString(tileLayer->getName()))
+                                     .arg(tileLayer->getMinLevel())
+                                     .arg(tileLayer->getMaxLevel())
+                                     .arg(static_cast<int>(tileLayer->getDataExtentsSize()))
+                                     .arg(tileLayer->getNoDataValue(), 0, 'f', 2)
+                                     .arg(tileLayer->getMinValidValue(), 0, 'f', 2)
+                                     .arg(tileLayer->getMaxValidValue(), 0, 'f', 2);
+        }
+
+        if (dynamic_cast<osgEarth::ElevationLayer*>(layer) != nullptr) {
+            ++elevationLayerCount;
+        }
+    }
+
+    qInfo() << "[TerrainDiag] elevationLayerCount=" << elevationLayerCount;
+
+    osgEarth::ElevationPool* pool = map->getElevationPool();
+    const osgEarth::SpatialReference* wgs84 = osgEarth::SpatialReference::get("wgs84");
+    if (pool == nullptr || wgs84 == nullptr) {
+        qWarning() << "[TerrainDiag] ElevationPool or WGS84 SRS unavailable.";
+        return;
+    }
+
+    const std::array<std::pair<double, double>, 4> probePoints = {
+        std::make_pair(86.5, 33.5),   // 青藏高原
+        std::make_pair(103.8, 36.1),  // 中国西北过渡带
+        std::make_pair(116.4, 39.9),  // 华北平原
+        std::make_pair(121.5, 31.2)   // 华东沿海
+    };
+
+    for (const auto& probe : probePoints) {
+        osgEarth::GeoPoint point(wgs84, probe.first, probe.second, 0.0, osgEarth::ALTMODE_ABSOLUTE);
+        const osgEarth::ElevationSample sample = pool->getSample(point, nullptr);
+        qInfo().noquote() << QStringLiteral("[TerrainDiag] sample lon=%1 lat=%2 hasData=%3 elev=%4 res=%5")
+                                 .arg(probe.first, 0, 'f', 4)
+                                 .arg(probe.second, 0, 'f', 4)
+                                 .arg(sample.hasData() ? QStringLiteral("true") : QStringLiteral("false"))
+                                 .arg(sample.elevation().getValue(), 0, 'f', 2)
+                                 .arg(sample.resolution().getValue(), 0, 'f', 2);
+    }
 }
 
 void OsgEarthWidget::rebuildFallbackGlobe() {
@@ -1498,13 +1628,54 @@ void OsgEarthWidget::rebuildThreatGeometry() {
     }
 
     for (std::size_t i = 0; i < m_threats.size(); ++i) {
-        osg::ref_ptr<osg::MatrixTransform> newNode = buildThreatVisualNode(m_threats[i]);
+        mission::ThreatZone adjustedThreat = m_threats[i];
+        double groundMeters = 0.0;
+        if (sampleTerrainElevationMeters(adjustedThreat.longitudeDeg, adjustedThreat.latitudeDeg, groundMeters)) {
+            adjustedThreat.minAltitudeMeters += groundMeters;
+            adjustedThreat.maxAltitudeMeters += groundMeters;
+        }
+
+        osg::ref_ptr<osg::MatrixTransform> newNode = buildThreatVisualNode(adjustedThreat);
         if (m_threatVisualNodes[i].valid()) {
             m_threatGroup->removeChild(m_threatVisualNodes[i].get());
         }
         m_threatVisualNodes[i] = newNode;
         m_threatGroup->addChild(newNode.get());
     }
+
+    osgEarth::Registry::shaderGenerator().run(m_overlayGroup.get(), "mission-overlay");
+}
+
+bool OsgEarthWidget::sampleTerrainElevationMeters(double lonDeg, double latDeg, double& outMeters) const {
+    if (!m_mapNode.valid() || m_mapNode->getMap() == nullptr) {
+        return false;
+    }
+    osgEarth::ElevationPool* pool = m_mapNode->getMap()->getElevationPool();
+    const osgEarth::SpatialReference* wgs84 = osgEarth::SpatialReference::get("wgs84");
+    if (pool == nullptr || wgs84 == nullptr) {
+        return false;
+    }
+
+    osgEarth::GeoPoint point(wgs84, lonDeg, latDeg, 0.0, osgEarth::ALTMODE_ABSOLUTE);
+    const osgEarth::ElevationSample sample = pool->getSample(point, nullptr);
+    if (!sample.hasData()) {
+        return false;
+    }
+
+    outMeters = sample.elevation().getValue();
+    return true;
+}
+
+double OsgEarthWidget::clampAltitudeAboveTerrain(
+    double lonDeg,
+    double latDeg,
+    double desiredAltMeters,
+    double minClearanceMeters) const {
+    double groundMeters = 0.0;
+    if (!sampleTerrainElevationMeters(lonDeg, latDeg, groundMeters)) {
+        return desiredAltMeters;
+    }
+    return std::max(desiredAltMeters, groundMeters + std::max(0.0, minClearanceMeters));
 }
 
 void OsgEarthWidget::rebuildMarkers() {

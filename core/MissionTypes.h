@@ -88,18 +88,16 @@ struct MultiMissionResult {
 
 inline osg::Vec4 missileColor(int index) {
     static const osg::Vec4 palette[] = {
-        osg::Vec4(0.00f, 0.90f, 1.00f, 1.00f),
-        osg::Vec4(1.00f, 0.20f, 0.80f, 1.00f),
-        osg::Vec4(1.00f, 0.84f, 0.00f, 1.00f),
-        osg::Vec4(0.46f, 1.00f, 0.01f, 1.00f),
-        osg::Vec4(1.00f, 0.43f, 0.00f, 1.00f),
-        osg::Vec4(1.00f, 0.09f, 0.26f, 1.00f),
-        osg::Vec4(0.67f, 0.00f, 1.00f, 1.00f),
-        osg::Vec4(0.78f, 1.00f, 0.00f, 1.00f),
-        osg::Vec4(0.00f, 0.76f, 0.62f, 1.00f),
-        osg::Vec4(0.96f, 0.56f, 0.26f, 1.00f),
-        osg::Vec4(0.55f, 0.76f, 1.00f, 1.00f),
-        osg::Vec4(0.93f, 0.35f, 0.35f, 1.00f),
+        osg::Vec4(248.0f / 255.0f, 194.0f / 255.0f, 79.0f / 255.0f, 1.0f),
+        osg::Vec4(119.0f / 255.0f, 234.0f / 255.0f, 145.0f / 255.0f, 1.0f),
+        osg::Vec4(86.0f / 255.0f, 214.0f / 255.0f, 255.0f / 255.0f, 1.0f),
+        osg::Vec4(236.0f / 255.0f, 121.0f / 255.0f, 193.0f / 255.0f, 1.0f),
+        osg::Vec4(166.0f / 255.0f, 145.0f / 255.0f, 245.0f / 255.0f, 1.0f),
+        osg::Vec4(255.0f / 255.0f, 155.0f / 255.0f, 105.0f / 255.0f, 1.0f),
+        osg::Vec4(255.0f / 255.0f, 107.0f / 255.0f, 107.0f / 255.0f, 1.0f),
+        osg::Vec4(78.0f / 255.0f, 205.0f / 255.0f, 196.0f / 255.0f, 1.0f),
+        osg::Vec4(255.0f / 255.0f, 230.0f / 255.0f, 109.0f / 255.0f, 1.0f),
+        osg::Vec4(168.0f / 255.0f, 230.0f / 255.0f, 207.0f / 255.0f, 1.0f),
     };
     constexpr int n = static_cast<int>(sizeof(palette) / sizeof(palette[0]));
     return palette[static_cast<int>(index) % n];
