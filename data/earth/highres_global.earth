@@ -1,8 +1,8 @@
 <map name="OfflineGlobal" type="geocentric" version="2">
 
-  <!-- 1. 离线全球影像（Natural Earth） -->
+  <!-- 1. 离线全球影像（Hypso/Relief+Water+Drains+Ocean Bottom） -->
   <image name="OfflineEarthTexture" driver="gdal">
-    <url>imagery/NE2_50M_SR.tif</url>
+    <url>imagery/HYP_LR_SR_OB_DR.tif</url>
     <wrap>true</wrap>
   </image>
 
