@@ -84,6 +84,7 @@ private:
         double realDeltaSeconds);
     void updateAssignmentTable();
     void updateOverallMetrics();
+    void updateScenarioSummary();
     void saveCurrentMissileParams();
     void saveCurrentTargetParams();
     void loadMissileParams(int index);
@@ -128,6 +129,12 @@ private:
     QComboBox* m_failureMissileCombo = nullptr;
 
     QLabel* m_sceneDataSourceValue = nullptr;
+    QLabel* m_blueForceCountValue = nullptr;
+    QLabel* m_redTargetCountValue = nullptr;
+    QLabel* m_threatZoneCountValue = nullptr;
+    QLabel* m_scenarioBalanceValue = nullptr;
+    QLabel* m_planHealthValue = nullptr;
+
     QLabel* m_planTimeValue = nullptr;
     QLabel* m_pathLengthValue = nullptr;
     QLabel* m_nodesValue = nullptr;

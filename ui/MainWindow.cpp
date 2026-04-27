@@ -22,8 +22,8 @@
 #include <QPushButton>
 #include <QSaveFile>
 #include <QSpinBox>
+#include <QStackedWidget>
 #include <QStatusBar>
-#include <QTabWidget>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QVBoxLayout>
@@ -680,44 +680,176 @@ void MainWindow::buildUi() {
     resize(1560, 920);
 
     setStyleSheet(QStringLiteral(
-        "QMainWindow, QWidget { background: #0d1724; color: #d8e4f2; }"
-        "QTabWidget::pane { border: 1px solid #28425d; top: -1px; background: #111e2e; }"
-        "QTabBar::tab { background: #13263a; border: 1px solid #2f4f6f; padding: 6px 12px; margin-right: 2px; color: #9ec2e4; }"
-        "QTabBar::tab:selected { background: #1a3550; color: #e7f4ff; }"
-        "QGroupBox { border: 1px solid #2a3f58; border-radius: 4px; margin-top: 8px; padding-top: 6px; font-weight: 600; }"
-        "QGroupBox::title { subcontrol-origin: margin; left: 8px; color: #8fd0ff; }"
-        "QFrame { background: #121f2f; border: 1px solid #2a3f58; border-radius: 4px; }"
+        "QMainWindow, QWidget { background: #0b1320; color: #d8e4f2; }"
+        "#topBar { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0f1e33, stop:1 #162846); border: 1px solid #2c4f71; border-radius: 8px; }"
+        "#brandLabel { color: #ecf6ff; font-size: 16px; font-weight: 700; letter-spacing: 1px; }"
+        "#brandSubLabel { color: #89a8c5; font-size: 11px; }"
+        "#navButton { background: transparent; border: 1px solid #335a7e; border-radius: 6px; padding: 7px 16px; color: #9fc5e9; font-weight: 600; }"
+        "#navButton:hover:!checked { background: #193957; }"
+        "#navButton:checked { background: #1f5f8f; border-color: #57a7e0; color: #f4faff; }"
+        "QGroupBox { border: 1px solid #2a4058; border-radius: 6px; margin-top: 10px; padding-top: 8px; font-weight: 600; }"
+        "QGroupBox::title { subcontrol-origin: margin; left: 10px; color: #97cbf6; }"
+        "QFrame { background: #111f31; border: 1px solid #2a425b; border-radius: 6px; }"
         "QLabel { color: #d8e4f2; }"
-        "QPushButton { background: #1f8ecd; border: 1px solid #3aa4e2; border-radius: 4px; padding: 6px 8px; color: #f2f9ff; font-weight: 600; }"
-        "QPushButton:hover { background: #26a3eb; }"
-        "QPushButton:pressed { background: #1779b2; }"
-        "QDoubleSpinBox, QSpinBox, QComboBox, QListWidget, QTableWidget { background: #0f1b28; border: 1px solid #35506d; border-radius: 3px; color: #e8f3ff; selection-background-color: #2f77aa; }"
-        "QTableWidget::item { padding: 2px; }"
-        "QHeaderView::section { background: #13263a; color: #9ec2e4; border: 1px solid #2a3f58; padding: 3px; }"
+        "QPushButton { background: #1c79b4; border: 1px solid #3d97cf; border-radius: 5px; padding: 6px 10px; color: #f1f9ff; font-weight: 600; }"
+        "QPushButton:hover { background: #2591d4; }"
+        "QPushButton:pressed { background: #17689b; }"
+        "QDoubleSpinBox, QSpinBox, QComboBox, QListWidget, QTableWidget { background: #0f1b28; border: 1px solid #375571; border-radius: 4px; color: #e8f3ff; selection-background-color: #2e78ad; }"
+        "QTableWidget::item { padding: 3px; }"
+        "QHeaderView::section { background: #13263b; color: #9ec2e4; border: 1px solid #2d455f; padding: 4px; }"
         "QStatusBar { background: #0a131f; color: #9ec2e4; }"));
 
     auto* central = new QWidget(this);
-    auto* rootLayout = new QHBoxLayout(central);
+    auto* rootLayout = new QVBoxLayout(central);
     rootLayout->setContentsMargins(8, 8, 8, 8);
     rootLayout->setSpacing(8);
 
-    auto* panel = new QFrame(central);
-    panel->setFrameShape(QFrame::StyledPanel);
-    panel->setMinimumWidth(400);
-    panel->setMaximumWidth(460);
+    auto* topBar = new QFrame(central);
+    topBar->setObjectName(QStringLiteral("topBar"));
+    auto* topBarLayout = new QHBoxLayout(topBar);
+    topBarLayout->setContentsMargins(12, 8, 12, 8);
+    topBarLayout->setSpacing(10);
 
-    auto* panelLayout = new QVBoxLayout(panel);
-    panelLayout->setContentsMargins(8, 8, 8, 8);
-    panelLayout->setSpacing(6);
+    auto* brandWrap = new QWidget(topBar);
+    auto* brandLayout = new QVBoxLayout(brandWrap);
+    brandLayout->setContentsMargins(0, 0, 0, 0);
+    brandLayout->setSpacing(2);
+    auto* brandLabel = new QLabel(QStringLiteral("MPMP 空面导弹协同规划平台"), brandWrap);
+    brandLabel->setObjectName(QStringLiteral("brandLabel"));
+    auto* brandSubLabel = new QLabel(QStringLiteral("Mission Planning / Scenario Editing / Result Analysis"), brandWrap);
+    brandSubLabel->setObjectName(QStringLiteral("brandSubLabel"));
+    brandLayout->addWidget(brandLabel);
+    brandLayout->addWidget(brandSubLabel);
+    topBarLayout->addWidget(brandWrap);
 
-    auto* titleLabel = new QLabel(QStringLiteral("多弹协同任务控制台"), panel);
-    QFont titleFont = titleLabel->font();
-    titleFont.setPointSize(13);
-    titleFont.setBold(true);
-    titleLabel->setFont(titleFont);
-    panelLayout->addWidget(titleLabel);
+    auto* navWrap = new QWidget(topBar);
+    auto* navLayout = new QHBoxLayout(navWrap);
+    navLayout->setContentsMargins(0, 0, 0, 0);
+    navLayout->setSpacing(8);
+    auto* planningNavButton = new QPushButton(QStringLiteral("任务规划"), navWrap);
+    auto* scenarioNavButton = new QPushButton(QStringLiteral("场景编辑"), navWrap);
+    auto* resultNavButton = new QPushButton(QStringLiteral("结果分析"), navWrap);
+    planningNavButton->setObjectName(QStringLiteral("navButton"));
+    scenarioNavButton->setObjectName(QStringLiteral("navButton"));
+    resultNavButton->setObjectName(QStringLiteral("navButton"));
+    planningNavButton->setCheckable(true);
+    scenarioNavButton->setCheckable(true);
+    resultNavButton->setCheckable(true);
+    navLayout->addWidget(planningNavButton);
+    navLayout->addWidget(scenarioNavButton);
+    navLayout->addWidget(resultNavButton);
+    topBarLayout->addWidget(navWrap);
+    topBarLayout->addStretch(1);
 
-    auto* sceneGroup = new QGroupBox(QStringLiteral("场景模式"), panel);
+    rootLayout->addWidget(topBar);
+
+    auto* pageStack = new QStackedWidget(central);
+    rootLayout->addWidget(pageStack, 1);
+
+    auto* planningPage = new QWidget(pageStack);
+    auto* planningLayout = new QHBoxLayout(planningPage);
+    planningLayout->setContentsMargins(0, 0, 0, 0);
+    planningLayout->setSpacing(8);
+
+    auto* commandPanel = new QFrame(planningPage);
+    commandPanel->setMinimumWidth(420);
+    commandPanel->setMaximumWidth(460);
+    auto* commandLayout = new QVBoxLayout(commandPanel);
+    commandLayout->setContentsMargins(8, 8, 8, 8);
+    commandLayout->setSpacing(8);
+
+    auto* overviewGroup = new QGroupBox(QStringLiteral("任务态势摘要"), commandPanel);
+    auto* overviewLayout = new QFormLayout(overviewGroup);
+    m_blueForceCountValue = new QLabel(QStringLiteral("0"), overviewGroup);
+    m_redTargetCountValue = new QLabel(QStringLiteral("0"), overviewGroup);
+    m_threatZoneCountValue = new QLabel(QStringLiteral("0"), overviewGroup);
+    m_scenarioBalanceValue = new QLabel(QStringLiteral("待配置"), overviewGroup);
+    m_planHealthValue = new QLabel(QStringLiteral("未规划"), overviewGroup);
+    overviewLayout->addRow(QStringLiteral("蓝方导弹"), m_blueForceCountValue);
+    overviewLayout->addRow(QStringLiteral("红方目标"), m_redTargetCountValue);
+    overviewLayout->addRow(QStringLiteral("威胁区"), m_threatZoneCountValue);
+    overviewLayout->addRow(QStringLiteral("战场均衡度"), m_scenarioBalanceValue);
+    overviewLayout->addRow(QStringLiteral("方案健康度"), m_planHealthValue);
+    commandLayout->addWidget(overviewGroup);
+
+    auto* algoGroup = new QGroupBox(QStringLiteral("分配算法与战术参数"), commandPanel);
+    auto* algoLayout = new QFormLayout(algoGroup);
+
+    m_allocationCombo = new QComboBox(algoGroup);
+    m_allocationCombo->addItems({
+        QStringLiteral("匈牙利算法（最优分配）"),
+        QStringLiteral("遗传算法（复杂场景）"),
+        QStringLiteral("贪心算法（快速估算）")});
+
+    m_profileCombo = new QComboBox(algoGroup);
+    m_profileCombo->addItems({
+        QStringLiteral("低空隐蔽突防"),
+        QStringLiteral("高空快速突防"),
+        QStringLiteral("混合剖面突防")});
+
+    m_clearanceSpin = createSpinBox(80.0, 2000.0, 320.0, 0, 20.0, algoGroup);
+    m_gridStepSpin = createSpinBox(0.01, 0.2, 0.04, 3, 0.005, algoGroup);
+    m_threatPenaltyCheck = new QCheckBox(QStringLiteral("启用威胁区软惩罚"), algoGroup);
+    m_threatPenaltyCheck->setChecked(true);
+
+    algoLayout->addRow(QStringLiteral("分配算法"), m_allocationCombo);
+    algoLayout->addRow(QStringLiteral("突防剖面"), m_profileCombo);
+    algoLayout->addRow(QStringLiteral("离地裕度(m)"), m_clearanceSpin);
+    algoLayout->addRow(QStringLiteral("网格分辨率(°)"), m_gridStepSpin);
+    algoLayout->addRow(QStringLiteral(""), m_threatPenaltyCheck);
+    commandLayout->addWidget(algoGroup);
+
+    auto* actionGroup = new QGroupBox(QStringLiteral("规划与推演"), commandPanel);
+    auto* actionLayout = new QVBoxLayout(actionGroup);
+    auto* planButton = new QPushButton(QStringLiteral("执行多导弹协同规划"), actionGroup);
+    auto* simButton = new QPushButton(QStringLiteral("开始多弹三维推演"), actionGroup);
+
+    auto* speedLayout = new QFormLayout;
+    m_timeScaleSpin = createSpinBox(1.0, 240.0, 20.0, 0, 1.0, actionGroup);
+    m_followMissileCheck = new QCheckBox(QStringLiteral("跟随导弹视角（可随时鼠标接管）"), actionGroup);
+    m_followMissileCheck->setChecked(false);
+    speedLayout->addRow(QStringLiteral("推演倍率(x)"), m_timeScaleSpin);
+
+    actionLayout->addWidget(planButton);
+    actionLayout->addWidget(simButton);
+    actionLayout->addLayout(speedLayout);
+    actionLayout->addWidget(m_followMissileCheck);
+    commandLayout->addWidget(actionGroup);
+
+    auto* replanGroup = new QGroupBox(QStringLiteral("动态重规划"), commandPanel);
+    auto* replanLayout = new QHBoxLayout(replanGroup);
+    m_failureMissileCombo = new QComboBox(replanGroup);
+    auto* failButton = new QPushButton(QStringLiteral("模拟导弹失效"), replanGroup);
+    auto* replanButton = new QPushButton(QStringLiteral("执行动态重规划"), replanGroup);
+    replanLayout->addWidget(m_failureMissileCombo, 1);
+    replanLayout->addWidget(failButton);
+    replanLayout->addWidget(replanButton);
+    commandLayout->addWidget(replanGroup);
+
+    auto* mapToolsGroup = new QGroupBox(QStringLiteral("地图控制"), commandPanel);
+    auto* mapToolsLayout = new QHBoxLayout(mapToolsGroup);
+    auto* zoomOutButton = new QPushButton(QStringLiteral("- 缩小"), mapToolsGroup);
+    auto* zoomInButton = new QPushButton(QStringLiteral("+ 放大"), mapToolsGroup);
+    mapToolsLayout->addWidget(zoomOutButton);
+    mapToolsLayout->addWidget(zoomInButton);
+    commandLayout->addWidget(mapToolsGroup);
+    commandLayout->addStretch(1);
+
+    auto* mapGroup = new QGroupBox(QStringLiteral("任务规划态势图（导弹 / 目标 / 威胁）"), planningPage);
+    auto* mapLayout = new QVBoxLayout(mapGroup);
+    mapLayout->setContentsMargins(6, 10, 6, 6);
+    m_earthWidget = new OsgEarthWidget(mapGroup);
+    mapLayout->addWidget(m_earthWidget);
+
+    planningLayout->addWidget(commandPanel, 0);
+    planningLayout->addWidget(mapGroup, 1);
+
+    auto* scenarioPage = new QWidget(pageStack);
+    auto* scenarioLayout = new QVBoxLayout(scenarioPage);
+    scenarioLayout->setContentsMargins(0, 0, 0, 0);
+    scenarioLayout->setSpacing(8);
+
+    auto* sceneGroup = new QGroupBox(QStringLiteral("场景模式与地球数据"), scenarioPage);
     auto* sceneLayout = new QFormLayout(sceneGroup);
     m_globeModeCombo = new QComboBox(sceneGroup);
     m_globeModeCombo->addItems({
@@ -726,26 +858,21 @@ void MainWindow::buildUi() {
     m_sceneDataSourceValue = new QLabel(QStringLiteral("待检测（运行后加载）"), sceneGroup);
     sceneLayout->addRow(QStringLiteral("地球模型"), m_globeModeCombo);
     sceneLayout->addRow(QStringLiteral("数据源"), m_sceneDataSourceValue);
-    panelLayout->addWidget(sceneGroup);
+    scenarioLayout->addWidget(sceneGroup);
 
-    auto* tabs = new QTabWidget(panel);
-    tabs->setDocumentMode(true);
+    auto* entitiesRow = new QHBoxLayout;
+    entitiesRow->setSpacing(8);
 
-    auto* missionTab = new QWidget(tabs);
-    auto* missionLayout = new QVBoxLayout(missionTab);
-    missionLayout->setContentsMargins(6, 6, 6, 6);
-    missionLayout->setSpacing(6);
-
-    auto* missileGroup = new QGroupBox(QStringLiteral("导弹配置"), missionTab);
+    auto* missileGroup = new QGroupBox(QStringLiteral("蓝方导弹编组"), scenarioPage);
     auto* missileOuterLayout = new QVBoxLayout(missileGroup);
 
     auto* missileListRow = new QHBoxLayout;
     m_missileList = new QListWidget(missileGroup);
-    m_missileList->setMaximumHeight(80);
-    auto* missileAddBtn = new QPushButton(QStringLiteral("+"), missileGroup);
-    missileAddBtn->setMinimumWidth(50);
-    auto* missileRemoveBtn = new QPushButton(QStringLiteral("-"), missileGroup);
-    missileRemoveBtn->setMinimumWidth(50);
+    m_missileList->setMaximumHeight(190);
+    auto* missileAddBtn = new QPushButton(QStringLiteral("添加"), missileGroup);
+    missileAddBtn->setMinimumWidth(72);
+    auto* missileRemoveBtn = new QPushButton(QStringLiteral("移除"), missileGroup);
+    missileRemoveBtn->setMinimumWidth(72);
     auto* missileBtnCol = new QVBoxLayout;
     missileBtnCol->addWidget(missileAddBtn);
     missileBtnCol->addWidget(missileRemoveBtn);
@@ -778,18 +905,16 @@ void MainWindow::buildUi() {
     missileParamLayout->addWidget(m_missileSpeedSpin, r, 1);
     missileOuterLayout->addLayout(missileParamLayout);
 
-    missionLayout->addWidget(missileGroup);
-
-    auto* targetGroup = new QGroupBox(QStringLiteral("目标配置"), missionTab);
+    auto* targetGroup = new QGroupBox(QStringLiteral("红方目标编组"), scenarioPage);
     auto* targetOuterLayout = new QVBoxLayout(targetGroup);
 
     auto* targetListRow = new QHBoxLayout;
     m_targetList = new QListWidget(targetGroup);
-    m_targetList->setMaximumHeight(80);
-    auto* targetAddBtn = new QPushButton(QStringLiteral("+"), targetGroup);
-    targetAddBtn->setMinimumWidth(50);
-    auto* targetRemoveBtn = new QPushButton(QStringLiteral("-"), targetGroup);
-    targetRemoveBtn->setMinimumWidth(50);
+    m_targetList->setMaximumHeight(190);
+    auto* targetAddBtn = new QPushButton(QStringLiteral("添加"), targetGroup);
+    targetAddBtn->setMinimumWidth(72);
+    auto* targetRemoveBtn = new QPushButton(QStringLiteral("移除"), targetGroup);
+    targetRemoveBtn->setMinimumWidth(72);
     auto* targetBtnCol = new QVBoxLayout;
     targetBtnCol->addWidget(targetAddBtn);
     targetBtnCol->addWidget(targetRemoveBtn);
@@ -819,9 +944,7 @@ void MainWindow::buildUi() {
     targetParamLayout->addWidget(m_targetPrioritySpin, r, 3);
     targetOuterLayout->addLayout(targetParamLayout);
 
-    missionLayout->addWidget(targetGroup);
-
-    auto* threatGroup = new QGroupBox(QStringLiteral("雷达威胁区"), missionTab);
+    auto* threatGroup = new QGroupBox(QStringLiteral("威胁区配置"), scenarioPage);
     auto* threatLayout = new QGridLayout(threatGroup);
 
     m_threatLon = createSpinBox(-180.0, 180.0, 111.2000, 4, 0.01, threatGroup);
@@ -847,83 +970,56 @@ void MainWindow::buildUi() {
     threatLayout->addWidget(clearThreatButton, r, 2, 1, 2);
 
     m_threatList = new QListWidget(threatGroup);
-    m_threatList->setMaximumHeight(60);
+    m_threatList->setMaximumHeight(150);
     ++r;
     threatLayout->addWidget(m_threatList, r, 0, 1, 4);
 
-    missionLayout->addWidget(threatGroup);
+    entitiesRow->addWidget(missileGroup, 1);
+    entitiesRow->addWidget(targetGroup, 1);
+    entitiesRow->addWidget(threatGroup, 1);
+    scenarioLayout->addLayout(entitiesRow, 1);
 
-    auto* algoGroup = new QGroupBox(QStringLiteral("分配算法与战术参数"), missionTab);
-    auto* algoLayout = new QFormLayout(algoGroup);
+    auto* resultPage = new QWidget(pageStack);
+    auto* resultLayout = new QHBoxLayout(resultPage);
+    resultLayout->setContentsMargins(0, 0, 0, 0);
+    resultLayout->setSpacing(8);
 
-    m_allocationCombo = new QComboBox(algoGroup);
-    m_allocationCombo->addItems({
-        QStringLiteral("匈牙利算法（最优分配）"),
-        QStringLiteral("遗传算法（复杂场景）"),
-        QStringLiteral("贪心算法（快速估算）")});
+    auto* analysisPane = new QWidget(resultPage);
+    auto* analysisLayout = new QVBoxLayout(analysisPane);
+    analysisLayout->setContentsMargins(0, 0, 0, 0);
+    analysisLayout->setSpacing(8);
 
-    m_profileCombo = new QComboBox(algoGroup);
-    m_profileCombo->addItems({
-        QStringLiteral("低空隐蔽突防"),
-        QStringLiteral("高空快速突防"),
-        QStringLiteral("混合剖面突防")});
+    auto* telemetryGroup = new QGroupBox(
+        QStringLiteral("飞行遥测分析（高度 / 弹目距 / 速度 / 俯仰 / 航向 / 加速度）"),
+        analysisPane);
+    auto* telemetryLayout = new QVBoxLayout(telemetryGroup);
+    telemetryLayout->setContentsMargins(8, 10, 8, 8);
+    m_telemetryWidget = new TelemetryPlotWidget(telemetryGroup);
+    telemetryLayout->addWidget(m_telemetryWidget);
+    telemetryGroup->setMinimumHeight(360);
+    analysisLayout->addWidget(telemetryGroup, 1);
 
-    m_clearanceSpin = createSpinBox(80.0, 2000.0, 320.0, 0, 20.0, algoGroup);
-    m_gridStepSpin = createSpinBox(0.01, 0.2, 0.04, 3, 0.005, algoGroup);
-    m_threatPenaltyCheck = new QCheckBox(QStringLiteral("启用威胁区软惩罚"), algoGroup);
-    m_threatPenaltyCheck->setChecked(true);
-
-    algoLayout->addRow(QStringLiteral("分配算法"), m_allocationCombo);
-    algoLayout->addRow(QStringLiteral("突防剖面"), m_profileCombo);
-    algoLayout->addRow(QStringLiteral("离地裕度(m)"), m_clearanceSpin);
-    algoLayout->addRow(QStringLiteral("网格分辨率(°)"), m_gridStepSpin);
-    algoLayout->addRow(QStringLiteral(""), m_threatPenaltyCheck);
-
-    missionLayout->addWidget(algoGroup);
-    missionLayout->addStretch(1);
-
-    auto* executeTab = new QWidget(tabs);
-    auto* executeLayout = new QVBoxLayout(executeTab);
-    executeLayout->setContentsMargins(6, 6, 6, 6);
-    executeLayout->setSpacing(6);
-
-    auto* actionGroup = new QGroupBox(QStringLiteral("规划与推演"), executeTab);
-    auto* actionLayout = new QVBoxLayout(actionGroup);
-
-    auto* planButton = new QPushButton(QStringLiteral("执行多导弹协同规划"), actionGroup);
-    auto* simButton = new QPushButton(QStringLiteral("开始多弹三维推演"), actionGroup);
-
-    auto* speedLayout = new QFormLayout;
-    m_timeScaleSpin = createSpinBox(1.0, 240.0, 20.0, 0, 1.0, actionGroup);
-    m_followMissileCheck = new QCheckBox(QStringLiteral("跟随导弹视角（可随时鼠标接管）"), actionGroup);
-    m_followMissileCheck->setChecked(false);
-
-    speedLayout->addRow(QStringLiteral("推演倍率(x)"), m_timeScaleSpin);
-
-    actionLayout->addWidget(planButton);
-    actionLayout->addWidget(simButton);
-    actionLayout->addLayout(speedLayout);
-    actionLayout->addWidget(m_followMissileCheck);
-
-    executeLayout->addWidget(actionGroup);
-
-    auto* assignGroup = new QGroupBox(QStringLiteral("分配结果"), executeTab);
+    auto* assignGroup = new QGroupBox(QStringLiteral("分配结果详情"), analysisPane);
     auto* assignLayout = new QVBoxLayout(assignGroup);
-
     m_assignmentTable = new QTableWidget(assignGroup);
     m_assignmentTable->setColumnCount(4);
     m_assignmentTable->setHorizontalHeaderLabels({
         QStringLiteral("导弹"), QStringLiteral("目标"), QStringLiteral("优先级"), QStringLiteral("状态")});
     m_assignmentTable->horizontalHeader()->setStretchLastSection(true);
     m_assignmentTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
-    m_assignmentTable->setMaximumHeight(220);
     m_assignmentTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_assignmentTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     assignLayout->addWidget(m_assignmentTable);
+    analysisLayout->addWidget(assignGroup, 1);
 
-    executeLayout->addWidget(assignGroup);
+    auto* resultSidePanel = new QFrame(resultPage);
+    resultSidePanel->setMinimumWidth(370);
+    resultSidePanel->setMaximumWidth(430);
+    auto* resultSideLayout = new QVBoxLayout(resultSidePanel);
+    resultSideLayout->setContentsMargins(8, 8, 8, 8);
+    resultSideLayout->setSpacing(8);
 
-    auto* metricGroup = new QGroupBox(QStringLiteral("任务指标"), executeTab);
+    auto* metricGroup = new QGroupBox(QStringLiteral("任务指标"), resultSidePanel);
     auto* metricLayout = new QFormLayout(metricGroup);
 
     m_planTimeValue = new QLabel(QStringLiteral("--"), metricGroup);
@@ -933,10 +1029,6 @@ void MainWindow::buildUi() {
     m_etaValue = new QLabel(QStringLiteral("--"), metricGroup);
     m_phaseValue = new QLabel(QStringLiteral("待命"), metricGroup);
     m_currentSpeedValue = new QLabel(QStringLiteral("0.0"), metricGroup);
-    m_successRateValue = new QLabel(QStringLiteral("--"), metricGroup);
-    m_successCountValue = new QLabel(QStringLiteral("--"), metricGroup);
-    m_failureCountValue = new QLabel(QStringLiteral("--"), metricGroup);
-    m_totalTargetsValue = new QLabel(QStringLiteral("--"), metricGroup);
 
     metricLayout->addRow(QStringLiteral("规划耗时(ms)"), m_planTimeValue);
     metricLayout->addRow(QStringLiteral("航程长度(m)"), m_pathLengthValue);
@@ -945,68 +1037,45 @@ void MainWindow::buildUi() {
     metricLayout->addRow(QStringLiteral("预计剩余(s)"), m_etaValue);
     metricLayout->addRow(QStringLiteral("飞行阶段"), m_phaseValue);
     metricLayout->addRow(QStringLiteral("当前速度(m/s)"), m_currentSpeedValue);
-    metricLayout->addRow(QStringLiteral("成功率"), m_successRateValue);
-    metricLayout->addRow(QStringLiteral("命中/失效"), m_successCountValue);
-    metricLayout->addRow(QStringLiteral("目标总数"), m_totalTargetsValue);
+    resultSideLayout->addWidget(metricGroup);
 
-    executeLayout->addWidget(metricGroup);
+    auto* effectGroup = new QGroupBox(QStringLiteral("任务效果评估"), resultSidePanel);
+    auto* effectLayout = new QFormLayout(effectGroup);
+    m_successRateValue = new QLabel(QStringLiteral("--"), effectGroup);
+    m_successCountValue = new QLabel(QStringLiteral("--"), effectGroup);
+    m_failureCountValue = new QLabel(QStringLiteral("--"), effectGroup);
+    m_totalTargetsValue = new QLabel(QStringLiteral("--"), effectGroup);
+    effectLayout->addRow(QStringLiteral("总体成功率"), m_successRateValue);
+    effectLayout->addRow(QStringLiteral("命中/失效"), m_successCountValue);
+    effectLayout->addRow(QStringLiteral("失效导弹"), m_failureCountValue);
+    effectLayout->addRow(QStringLiteral("目标总数"), m_totalTargetsValue);
+    resultSideLayout->addWidget(effectGroup);
 
-    auto* replanGroup = new QGroupBox(QStringLiteral("动态重规划"), executeTab);
-    auto* replanLayout = new QHBoxLayout(replanGroup);
-
-    m_failureMissileCombo = new QComboBox(replanGroup);
-    auto* failButton = new QPushButton(QStringLiteral("模拟导弹失效"), replanGroup);
-    auto* replanButton = new QPushButton(QStringLiteral("执行动态重规划"), replanGroup);
-
-    replanLayout->addWidget(m_failureMissileCombo, 1);
-    replanLayout->addWidget(failButton);
-    replanLayout->addWidget(replanButton);
-
-    executeLayout->addWidget(replanGroup);
-
-    auto* zoomButtonsLayout = new QHBoxLayout;
-    auto* zoomOutButton = new QPushButton(QStringLiteral("- 缩小"), executeTab);
-    auto* zoomInButton = new QPushButton(QStringLiteral("+ 放大"), executeTab);
-    m_exportHtmlButton = new QPushButton(QStringLiteral("导出 HTML 报告"), executeTab);
+    auto* reportGroup = new QGroupBox(QStringLiteral("报告与复盘"), resultSidePanel);
+    auto* reportLayout = new QVBoxLayout(reportGroup);
+    m_exportHtmlButton = new QPushButton(QStringLiteral("导出 HTML 报告"), reportGroup);
     m_exportHtmlButton->setEnabled(false);
-    zoomButtonsLayout->addWidget(zoomOutButton);
-    zoomButtonsLayout->addWidget(zoomInButton);
-    zoomButtonsLayout->addWidget(m_exportHtmlButton);
+    reportLayout->addWidget(m_exportHtmlButton);
+    reportLayout->addWidget(new QLabel(QStringLiteral("建议在推演结束后导出，便于归档与复盘。"), reportGroup));
+    resultSideLayout->addWidget(reportGroup);
+    resultSideLayout->addStretch(1);
 
-    executeLayout->addLayout(zoomButtonsLayout);
-    executeLayout->addStretch(1);
+    resultLayout->addWidget(analysisPane, 1);
+    resultLayout->addWidget(resultSidePanel, 0);
 
-    tabs->addTab(missionTab, QStringLiteral("任务设定"));
-    tabs->addTab(executeTab, QStringLiteral("推演监控"));
-    panelLayout->addWidget(tabs, 1);
+    pageStack->addWidget(planningPage);
+    pageStack->addWidget(scenarioPage);
+    pageStack->addWidget(resultPage);
+    pageStack->setCurrentIndex(0);
 
-    auto* rightPane = new QWidget(central);
-    auto* rightLayout = new QVBoxLayout(rightPane);
-    rightLayout->setContentsMargins(0, 0, 0, 0);
-    rightLayout->setSpacing(8);
+    auto switchPage = [pageStack, planningNavButton, scenarioNavButton, resultNavButton](int pageIndex) {
+        pageStack->setCurrentIndex(pageIndex);
+        planningNavButton->setChecked(pageIndex == 0);
+        scenarioNavButton->setChecked(pageIndex == 1);
+        resultNavButton->setChecked(pageIndex == 2);
+    };
 
-    auto* telemetryGroup = new QGroupBox(
-        QStringLiteral("飞行实时可视化（多弹遥测：高度/弹目距/速度/俯仰/航向/加速度）"),
-        rightPane);
-    auto* telemetryLayout = new QVBoxLayout(telemetryGroup);
-    telemetryLayout->setContentsMargins(8, 10, 8, 8);
-
-    m_telemetryWidget = new TelemetryPlotWidget(telemetryGroup);
-    telemetryLayout->addWidget(m_telemetryWidget);
-    telemetryGroup->setMinimumHeight(360);
-    telemetryGroup->setMaximumHeight(460);
-
-    auto* globeGroup = new QGroupBox(QStringLiteral("三维地球态势"), rightPane);
-    auto* globeLayout = new QVBoxLayout(globeGroup);
-    globeLayout->setContentsMargins(6, 10, 6, 6);
-    m_earthWidget = new OsgEarthWidget(globeGroup);
-    globeLayout->addWidget(m_earthWidget);
-
-    rightLayout->addWidget(telemetryGroup, 0);
-    rightLayout->addWidget(globeGroup, 1);
-
-    rootLayout->addWidget(panel, 0);
-    rootLayout->addWidget(rightPane, 1);
+    switchPage(0);
 
     setCentralWidget(central);
 
@@ -1025,6 +1094,10 @@ void MainWindow::buildUi() {
     connect(targetAddBtn, &QPushButton::clicked, this, &MainWindow::onAddTarget);
     connect(targetRemoveBtn, &QPushButton::clicked, this, &MainWindow::onRemoveTarget);
     connect(m_targetList, &QListWidget::currentRowChanged, this, &MainWindow::onTargetSelectionChanged);
+
+    connect(planningNavButton, &QPushButton::clicked, this, [switchPage]() { switchPage(0); });
+    connect(scenarioNavButton, &QPushButton::clicked, this, [switchPage]() { switchPage(1); });
+    connect(resultNavButton, &QPushButton::clicked, this, [switchPage]() { switchPage(2); });
 
     connect(zoomInButton, &QPushButton::clicked, this, [this]() {
         if (m_earthWidget != nullptr) m_earthWidget->zoomIn();
@@ -1046,6 +1119,7 @@ void MainWindow::buildUi() {
         m_missileSpeedSpin->setValue(defaultSpeedForType(index));
     });
 
+    updateScenarioSummary();
     refreshSceneDataSourceLabel();
 }
 
@@ -1079,6 +1153,8 @@ void MainWindow::refreshThreatList() {
                                   .arg(t.radiusMeters, 0, 'f', 0)
                                   .arg(t.maxAltitudeMeters, 0, 'f', 0));
     }
+
+    updateScenarioSummary();
 }
 
 void MainWindow::refreshMissileList() {
@@ -1103,6 +1179,8 @@ void MainWindow::refreshMissileList() {
         }
         m_telemetryWidget->setMissileNames(names);
     }
+
+    updateScenarioSummary();
 }
 
 void MainWindow::refreshTargetList() {
@@ -1116,6 +1194,8 @@ void MainWindow::refreshTargetList() {
                                   .arg(tc.latDeg, 0, 'f', 2)
                                   .arg(tc.priority));
     }
+
+    updateScenarioSummary();
 }
 
 void MainWindow::refreshMetrics(const mission::PlanMetrics& metrics) {
@@ -1296,6 +1376,56 @@ void MainWindow::updateAssignmentTable() {
     }
 }
 
+void MainWindow::updateScenarioSummary() {
+    if (m_blueForceCountValue != nullptr) {
+        m_blueForceCountValue->setText(QStringLiteral("%1 枚").arg(static_cast<int>(m_missileConfigs.size())));
+    }
+    if (m_redTargetCountValue != nullptr) {
+        m_redTargetCountValue->setText(QStringLiteral("%1 个").arg(static_cast<int>(m_targetConfigs.size())));
+    }
+    if (m_threatZoneCountValue != nullptr) {
+        m_threatZoneCountValue->setText(QStringLiteral("%1 个").arg(static_cast<int>(m_threatZones.size())));
+    }
+
+    if (m_scenarioBalanceValue == nullptr) {
+        return;
+    }
+
+    if (m_missileConfigs.empty() && m_targetConfigs.empty()) {
+        m_scenarioBalanceValue->setText(QStringLiteral("待录入蓝红双方实体"));
+        return;
+    }
+
+    if (m_targetConfigs.empty()) {
+        m_scenarioBalanceValue->setText(QStringLiteral("仅蓝方：请补充红方目标"));
+        return;
+    }
+
+    const double forceRatio = static_cast<double>(m_missileConfigs.size()) /
+                              static_cast<double>(std::max<std::size_t>(1, m_targetConfigs.size()));
+    QString forceText;
+    if (forceRatio < 0.8) {
+        forceText = QStringLiteral("蓝方火力偏弱");
+    } else if (forceRatio > 1.4) {
+        forceText = QStringLiteral("蓝方火力充足");
+    } else {
+        forceText = QStringLiteral("蓝红配比均衡");
+    }
+
+    const double threatDensity = static_cast<double>(m_threatZones.size()) /
+                                 static_cast<double>(std::max<std::size_t>(1, m_targetConfigs.size()));
+    QString threatText;
+    if (threatDensity > 0.8) {
+        threatText = QStringLiteral("威胁密度高");
+    } else if (threatDensity > 0.3) {
+        threatText = QStringLiteral("威胁密度中");
+    } else {
+        threatText = QStringLiteral("威胁密度低");
+    }
+
+    m_scenarioBalanceValue->setText(QStringLiteral("%1 | %2").arg(forceText, threatText));
+}
+
 void MainWindow::updateOverallMetrics() {
     int completed = 0;
     int failed = 0;
@@ -1310,9 +1440,32 @@ void MainWindow::updateOverallMetrics() {
                                    ? static_cast<double>(completed) / totalTargets
                                    : 0.0;
 
-    m_successRateValue->setText(QStringLiteral("%1%").arg(successRate * 100.0, 0, 'f', 1));
-    m_successCountValue->setText(QStringLiteral("%1 / %2").arg(completed).arg(failed));
-    m_totalTargetsValue->setText(QString::number(totalTargets));
+    if (m_successRateValue != nullptr) {
+        m_successRateValue->setText(QStringLiteral("%1%").arg(successRate * 100.0, 0, 'f', 1));
+    }
+    if (m_successCountValue != nullptr) {
+        m_successCountValue->setText(QStringLiteral("%1 / %2").arg(completed).arg(failed));
+    }
+    if (m_failureCountValue != nullptr) {
+        m_failureCountValue->setText(QString::number(failed));
+    }
+    if (m_totalTargetsValue != nullptr) {
+        m_totalTargetsValue->setText(QString::number(totalTargets));
+    }
+
+    if (m_planHealthValue != nullptr) {
+        if (m_lastMultiResult.assignments.empty()) {
+            m_planHealthValue->setText(QStringLiteral("未规划"));
+        } else if (m_simulationTimer.isActive()) {
+            m_planHealthValue->setText(QStringLiteral("推演中"));
+        } else if (successRate >= 0.8) {
+            m_planHealthValue->setText(QStringLiteral("优秀"));
+        } else if (successRate >= 0.5) {
+            m_planHealthValue->setText(QStringLiteral("可接受"));
+        } else {
+            m_planHealthValue->setText(QStringLiteral("需优化"));
+        }
+    }
 }
 
 void MainWindow::saveCurrentMissileParams() {
