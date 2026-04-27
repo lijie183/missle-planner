@@ -24,6 +24,26 @@ double approx3dDistanceMeters(const osgEarth::GeoPoint& a, const osgEarth::GeoPo
     return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
+double approxHorizontalDistanceMeters(double lonDegA, double latDegA, double lonDegB, double latDegB) {
+    const double meanLatRad = toRadians((latDegA + latDegB) * 0.5);
+    const double metersPerLonDegree = kMetersPerLatDegree * std::max(0.1, std::cos(meanLatRad));
+    const double dx = (lonDegB - lonDegA) * metersPerLonDegree;
+    const double dy = (latDegB - latDegA) * kMetersPerLatDegree;
+    return std::sqrt(dx * dx + dy * dy);
+}
+
+double approx3dDistanceMeters(
+    double lonDegA,
+    double latDegA,
+    double altMetersA,
+    double lonDegB,
+    double latDegB,
+    double altMetersB) {
+    const double horizontal = approxHorizontalDistanceMeters(lonDegA, latDegA, lonDegB, latDegB);
+    const double dz = altMetersB - altMetersA;
+    return std::sqrt(horizontal * horizontal + dz * dz);
+}
+
 double lerp(double a, double b, double t) {
     return a + (b - a) * t;
 }
@@ -66,7 +86,13 @@ void MissileSim::setRoute(const std::vector<osgEarth::GeoPoint>& route) {
     const double startAlt = m_route.front().z();
     const double endAlt = m_route.back().z();
     const double spanAlt = std::abs(endAlt - startAlt);
-    m_launchClimbPeakMeters = std::clamp(650.0 + startAlt * 0.18 + spanAlt * 0.06, 420.0, 1800.0);
+    const double horizontalRangeKm = std::max(1.0, approx3dDistanceMeters(
+        m_route.front().x(), m_route.front().y(), 0.0,
+        m_route.back().x(), m_route.back().y(), 0.0) / 1000.0);
+
+    // 远程任务抬高弹道顶点，近程任务仍保留可视爬升。
+    const double basePeak = 12000.0 + horizontalRangeKm * 900.0 + spanAlt * 0.12;
+    m_launchClimbPeakMeters = std::clamp(basePeak, 10000.0, 95000.0);
 }
 
 bool MissileSim::hasRoute() const {
@@ -80,7 +106,10 @@ void MissileSim::start(double speedMetersPerSecond) {
     }
 
     m_state.speedMetersPerSecond = std::max(1.0, speedMetersPerSecond);
-    m_state.currentSpeedMetersPerSecond = std::max(40.0, m_state.speedMetersPerSecond * 0.33);
+    m_state.currentSpeedMetersPerSecond = std::max(80.0, m_state.speedMetersPerSecond * 0.26);
+
+    const double speedFactor = std::clamp(m_state.speedMetersPerSecond / 900.0, 0.45, 1.9);
+    m_launchClimbPeakMeters = std::clamp(m_launchClimbPeakMeters * (0.8 + 0.6 * speedFactor), 9000.0, 120000.0);
     m_state.traveledMeters = 0.0;
     m_state.elapsedSeconds = 0.0;
     m_state.phase = Phase::Boost;
@@ -148,10 +177,10 @@ MissileSim::Phase MissileSim::phaseForProgress(double progress) const {
     if (progress >= 1.0) {
         return Phase::Completed;
     }
-    if (progress < 0.12) {
+    if (progress < 0.20) {
         return Phase::Boost;
     }
-    if (progress < 0.85) {
+    if (progress < 0.82) {
         return Phase::Cruise;
     }
     return Phase::Terminal;
@@ -160,11 +189,11 @@ MissileSim::Phase MissileSim::phaseForProgress(double progress) const {
 double MissileSim::desiredSpeedForPhase(Phase phase) const {
     switch (phase) {
         case Phase::Boost:
-            return m_state.speedMetersPerSecond * 1.18;
+            return m_state.speedMetersPerSecond * 1.85;
         case Phase::Cruise:
-            return m_state.speedMetersPerSecond * 1.00;
+            return m_state.speedMetersPerSecond * 1.28;
         case Phase::Terminal:
-            return m_state.speedMetersPerSecond * 0.72;
+            return m_state.speedMetersPerSecond * 0.98;
         case Phase::Completed:
             return 0.0;
         case Phase::Idle:
@@ -179,15 +208,19 @@ double MissileSim::climbOffsetForProgress(double progress) const {
         return 0.0;
     }
 
-    if (progress <= 0.16) {
-        return peak * smoothstep(progress / 0.16);
+    if (progress <= 0.26) {
+        return peak * smoothstep(progress / 0.26);
     }
-    if (progress <= 0.72) {
-        const double t = (progress - 0.16) / 0.56;
-        return lerp(peak, peak * 0.24, smoothstep(t));
+    if (progress <= 0.62) {
+        const double t = (progress - 0.26) / 0.36;
+        return lerp(peak, peak * 0.86, smoothstep(t));
     }
-    const double t = std::clamp((progress - 0.72) / 0.28, 0.0, 1.0);
-    return lerp(peak * 0.24, 0.0, smoothstep(t));
+    if (progress <= 0.82) {
+        const double t = (progress - 0.62) / 0.20;
+        return lerp(peak * 0.86, peak * 0.36, smoothstep(t));
+    }
+    const double t = std::clamp((progress - 0.82) / 0.18, 0.0, 1.0);
+    return lerp(peak * 0.36, 0.0, smoothstep(t));
 }
 
 osgEarth::GeoPoint MissileSim::sampleByDistance(double traveledMeters) const {

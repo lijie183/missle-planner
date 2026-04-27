@@ -138,6 +138,7 @@ private:
     void rebuildMarkers();
     void rebuildRouteGeometry();
     void rebuildTrailGeometry();
+    void updateFollowView(int index);
     void logTerrainDiagnostics();
     bool sampleTerrainElevationMeters(double lonDeg, double latDeg, double& outMeters) const;
     double clampAltitudeAboveTerrain(double lonDeg, double latDeg, double desiredAltMeters, double minClearanceMeters) const;

@@ -398,7 +398,9 @@ void MainWindow::onStartSimulation() {
                 m_earthWidget->setFollowMissile(static_cast<int>(i), follow);
             }
         }
-        m_earthWidget->focusOnAllRoutes();
+        if (!follow) {
+            m_earthWidget->focusOnAllRoutes();
+        }
     }
 
     m_tickClock.restart();
@@ -753,13 +755,13 @@ void MainWindow::buildUi() {
     missileOuterLayout->addLayout(missileListRow);
 
     auto* missileParamLayout = new QGridLayout;
-    m_missileLon = createSpinBox(-180.0, 180.0, 112.35, 4, 0.01, missileGroup);
-    m_missileLat = createSpinBox(-90.0, 90.0, 34.70, 4, 0.01, missileGroup);
-    m_missileAlt = createSpinBox(0.0, 30000.0, 1200.0, 0, 50.0, missileGroup);
+    m_missileLon = createSpinBox(-180.0, 180.0, 103.80, 4, 0.01, missileGroup);
+    m_missileLat = createSpinBox(-90.0, 90.0, 32.10, 4, 0.01, missileGroup);
+    m_missileAlt = createSpinBox(0.0, 120000.0, 1800.0, 0, 100.0, missileGroup);
     m_missileTypeCombo = new QComboBox(missileGroup);
     m_missileTypeCombo->addItems({
         QStringLiteral("高亚音速"), QStringLiteral("超音速"), QStringLiteral("高超滑翔")});
-    m_missileSpeedSpin = createSpinBox(30.0, 1200.0, 250.0, 0, 10.0, missileGroup);
+    m_missileSpeedSpin = createSpinBox(30.0, 2500.0, 900.0, 0, 20.0, missileGroup);
 
     int r = 0;
     missileParamLayout->addWidget(new QLabel(QStringLiteral("经度"), missileGroup), r, 0);
@@ -797,9 +799,9 @@ void MainWindow::buildUi() {
     targetOuterLayout->addLayout(targetListRow);
 
     auto* targetParamLayout = new QGridLayout;
-    m_targetLon = createSpinBox(-180.0, 180.0, 113.30, 4, 0.01, targetGroup);
-    m_targetLat = createSpinBox(-90.0, 90.0, 35.15, 4, 0.01, targetGroup);
-    m_targetAlt = createSpinBox(0.0, 30000.0, 1600.0, 0, 50.0, targetGroup);
+    m_targetLon = createSpinBox(-180.0, 180.0, 118.40, 4, 0.01, targetGroup);
+    m_targetLat = createSpinBox(-90.0, 90.0, 40.20, 4, 0.01, targetGroup);
+    m_targetAlt = createSpinBox(0.0, 120000.0, 2200.0, 0, 100.0, targetGroup);
     m_targetPrioritySpin = new QSpinBox(targetGroup);
     m_targetPrioritySpin->setRange(1, 10);
     m_targetPrioritySpin->setValue(5);
@@ -822,10 +824,10 @@ void MainWindow::buildUi() {
     auto* threatGroup = new QGroupBox(QStringLiteral("雷达威胁区"), missionTab);
     auto* threatLayout = new QGridLayout(threatGroup);
 
-    m_threatLon = createSpinBox(-180.0, 180.0, 112.8000, 4, 0.01, threatGroup);
-    m_threatLat = createSpinBox(-90.0, 90.0, 34.9300, 4, 0.01, threatGroup);
-    m_threatRadius = createSpinBox(500.0, 120000.0, 22000.0, 0, 500.0, threatGroup);
-    m_threatMaxAlt = createSpinBox(100.0, 20000.0, 3000.0, 0, 100.0, threatGroup);
+    m_threatLon = createSpinBox(-180.0, 180.0, 111.2000, 4, 0.01, threatGroup);
+    m_threatLat = createSpinBox(-90.0, 90.0, 36.6000, 4, 0.01, threatGroup);
+    m_threatRadius = createSpinBox(500.0, 240000.0, 48000.0, 0, 1000.0, threatGroup);
+    m_threatMaxAlt = createSpinBox(100.0, 60000.0, 18000.0, 0, 200.0, threatGroup);
 
     r = 0;
     threatLayout->addWidget(new QLabel(QStringLiteral("中心经度"), threatGroup), r, 0);
@@ -892,7 +894,7 @@ void MainWindow::buildUi() {
     auto* simButton = new QPushButton(QStringLiteral("开始多弹三维推演"), actionGroup);
 
     auto* speedLayout = new QFormLayout;
-    m_timeScaleSpin = createSpinBox(1.0, 240.0, 45.0, 0, 1.0, actionGroup);
+    m_timeScaleSpin = createSpinBox(1.0, 240.0, 20.0, 0, 1.0, actionGroup);
     m_followMissileCheck = new QCheckBox(QStringLiteral("跟随导弹视角（可随时鼠标接管）"), actionGroup);
     m_followMissileCheck->setChecked(false);
 

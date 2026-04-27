@@ -54,19 +54,19 @@ enum class AllocationMethod {
 struct MissileConfig {
     std::string id;
     std::string name;
-    double startLonDeg = 112.35;
-    double startLatDeg = 34.70;
-    double startAltMeters = 1200.0;
+    double startLonDeg = 103.80;
+    double startLatDeg = 32.10;
+    double startAltMeters = 1800.0;
     int missileType = 0;
-    double speedMps = 250.0;
+    double speedMps = 900.0;
 };
 
 struct TargetConfig {
     std::string id;
     std::string name;
-    double lonDeg = 113.30;
-    double latDeg = 35.15;
-    double altMeters = 1600.0;
+    double lonDeg = 118.40;
+    double latDeg = 40.20;
+    double altMeters = 2200.0;
     int priority = 5;
 };
 

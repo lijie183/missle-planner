@@ -1,9 +1,11 @@
 <map name="OfflineGlobal" type="geocentric" version="2">
 
-  <!-- 1. 离线全球影像（Hypso/Relief+Water+Drains+Ocean Bottom） -->
+  <!-- 1. 离线全球影像（Hypso/Relief+Water+Drains+Ocean Bottom，高精度） -->
   <image name="OfflineEarthTexture" driver="gdal">
-    <url>imagery/HYP_LR_SR_OB_DR.tif</url>
+    <url>imagery/HYP_HR_SR_OB_DR.tif</url>
     <wrap>true</wrap>
+    <max_data_level>12</max_data_level>
+    <max_level>16</max_level>
   </image>
 
   <!-- 2. 局部DEM高程（中国区域） -->

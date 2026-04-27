@@ -52,6 +52,7 @@
 #include <osgEarth/Profile>
 #include <osgEarth/Registry>
 #include <osgEarth/SpatialReference>
+#include <osgEarth/TileKey>
 #include <osgEarth/TileLayer>
 #include <osgEarth/ElevationLayer>
 #include <osgEarth/EarthManipulator>
@@ -720,6 +721,43 @@ void OsgEarthWidget::focusOnPoint(const osgEarth::GeoPoint& point, double rangeM
     m_trackballManipulator->setTransformation(eye, center, up);
 }
 
+void OsgEarthWidget::updateFollowView(int index) {
+    if (index < 0 || index >= static_cast<int>(m_missileVisuals.size())) {
+        return;
+    }
+
+    const auto& mv = m_missileVisuals[static_cast<std::size_t>(index)];
+    if (!mv.hasMissile || !mv.missilePoint.isValid()) {
+        return;
+    }
+
+    double terrainMeters = 0.0;
+    const bool hasTerrain = sampleTerrainElevationMeters(mv.missilePoint.x(), mv.missilePoint.y(), terrainMeters);
+    const double aglMeters = hasTerrain ? std::max(0.0, mv.missilePoint.z() - terrainMeters) : 1200.0;
+
+    const double followRange = std::clamp(36000.0 + aglMeters * 11.0, 28000.0, 320000.0);
+    const double followPitch = std::clamp(-20.0 - aglMeters / 5500.0, -42.0, -20.0);
+
+    const double centerAlt = hasTerrain
+        ? std::max(terrainMeters + 25.0, mv.missilePoint.z() - std::max(220.0, aglMeters * 0.72))
+        : mv.missilePoint.z();
+    const double heading = mv.hasPreviousPoint ? mv.headingDeg : 20.0;
+
+    osgEarth::GeoPoint followCenter = mv.missilePoint;
+    followCenter.z() = centerAlt;
+
+    if (m_globeMode == GlobeMode::Realistic && m_hasRealEarthDataset && m_earthManipulator.valid()) {
+        osgEarth::Viewpoint vp(
+            "missile-follow",
+            followCenter.x(), followCenter.y(), followCenter.z(),
+            heading, followPitch, followRange);
+        m_earthManipulator->setViewpoint(vp, 0.12);
+        return;
+    }
+
+    focusOnPoint(followCenter, followRange);
+}
+
 void OsgEarthWidget::focusOnRoute(const std::vector<osgEarth::GeoPoint>& route) {
     if (route.empty()) {
         return;
@@ -939,16 +977,16 @@ void OsgEarthWidget::setMissilePosition(int index, const osgEarth::GeoPoint& pos
             static_cast<float>(0.68 + 0.22 * pulse)));
     }
 
-    if (mv.trail.empty() || approximateDistanceMeters(mv.trail.back(), position) > 600.0) {
-        mv.trail.push_back(position);
+    if (mv.trail.empty() || approximateDistanceMeters(mv.trail.back(), adjustedPosition) > 600.0) {
+        mv.trail.push_back(adjustedPosition);
         rebuildMissileTrailGeometry(index);
     }
 
     if (mv.followEnabled && mv.hasMissile) {
         ++mv.followTickCounter;
-        if (mv.followTickCounter >= 3) {
+        if (mv.followTickCounter >= 2) {
             mv.followTickCounter = 0;
-            focusOnPoint(position, 120000.0);
+            updateFollowView(index);
         }
     }
 
@@ -1047,6 +1085,7 @@ void OsgEarthWidget::setFollowMissile(int index, bool enabled) {
     m_missileVisuals[static_cast<std::size_t>(index)].followTickCounter = 0;
     if (enabled) {
         m_activeMissileIndex = index;
+        updateFollowView(index);
     }
 }
 
@@ -1302,6 +1341,11 @@ void OsgEarthWidget::initializeViewer() {
     m_cachedViewportHeight = 0;
     syncGraphicsWindowSize();
 
+    QTimer::singleShot(1500, this, [this]() {
+        m_loggedTerrainDiagnostics = false;
+        logTerrainDiagnostics();
+    });
+
     m_initialized = true;
     m_initializing = false;
 }
@@ -1459,15 +1503,71 @@ void OsgEarthWidget::logTerrainDiagnostics() {
         std::make_pair(121.5, 31.2)   // 华东沿海
     };
 
+    bool anyPoolSampleHasData = false;
     for (const auto& probe : probePoints) {
         osgEarth::GeoPoint point(wgs84, probe.first, probe.second, 0.0, osgEarth::ALTMODE_ABSOLUTE);
         const osgEarth::ElevationSample sample = pool->getSample(point, nullptr);
+        anyPoolSampleHasData = anyPoolSampleHasData || sample.hasData();
         qInfo().noquote() << QStringLiteral("[TerrainDiag] sample lon=%1 lat=%2 hasData=%3 elev=%4 res=%5")
                                  .arg(probe.first, 0, 'f', 4)
                                  .arg(probe.second, 0, 'f', 4)
                                  .arg(sample.hasData() ? QStringLiteral("true") : QStringLiteral("false"))
                                  .arg(sample.elevation().getValue(), 0, 'f', 2)
                                  .arg(sample.resolution().getValue(), 0, 'f', 2);
+    }
+
+    if (!anyPoolSampleHasData) {
+        qWarning() << "[TerrainDiag] ElevationPool has no data at startup samples. Running direct ElevationLayer probe...";
+        std::vector<osg::ref_ptr<osgEarth::ElevationLayer>> elevationLayers;
+        map->getOpenLayers(elevationLayers);
+        for (const auto& elevLayerRef : elevationLayers) {
+            osgEarth::ElevationLayer* elevLayer = elevLayerRef.get();
+            if (elevLayer == nullptr) {
+                continue;
+            }
+
+            const osgEarth::Profile* profile = elevLayer->getProfile();
+            if (profile == nullptr || profile->getSRS() == nullptr) {
+                qWarning().noquote() << QStringLiteral("[TerrainDiag] directProbe layer='%1' missing profile/srs")
+                                            .arg(QString::fromStdString(elevLayer->getName()));
+                continue;
+            }
+
+            const unsigned probeLod = std::min(12u, elevLayer->getMaxLevel());
+
+            for (const auto& probe : probePoints) {
+                osgEarth::GeoPoint pWgs84(wgs84, probe.first, probe.second, 0.0, osgEarth::ALTMODE_ABSOLUTE);
+                osgEarth::GeoPoint pLayer = pWgs84.transform(profile->getSRS());
+                osgEarth::TileKey key = profile->createTileKey(pLayer, probeLod);
+                if (!key.valid()) {
+                    qInfo().noquote() << QStringLiteral("[TerrainDiag] directProbe layer='%1' lon=%2 lat=%3 key=INVALID")
+                                             .arg(QString::fromStdString(elevLayer->getName()))
+                                             .arg(probe.first, 0, 'f', 4)
+                                             .arg(probe.second, 0, 'f', 4);
+                    continue;
+                }
+
+                osgEarth::GeoHeightField ghf = elevLayer->createHeightField(key);
+                if (!ghf.valid()) {
+                    qInfo().noquote() << QStringLiteral("[TerrainDiag] directProbe layer='%1' key=%2 hf=INVALID status=%3")
+                                             .arg(QString::fromStdString(elevLayer->getName()))
+                                             .arg(QString::fromStdString(key.str()))
+                                             .arg(QString::fromStdString(ghf.getStatus().toString()));
+                    continue;
+                }
+
+                const float kNoDataSentinel = std::numeric_limits<float>::lowest();
+                float h = kNoDataSentinel;
+                const bool ok = ghf.getElevation(profile->getSRS(), pLayer.x(), pLayer.y(), osgEarth::INTERP_BILINEAR, nullptr, h);
+                qInfo().noquote() << QStringLiteral("[TerrainDiag] directProbe layer='%1' key=%2 ok=%3 h=%4 hfMin=%5 hfMax=%6")
+                                         .arg(QString::fromStdString(elevLayer->getName()))
+                                         .arg(QString::fromStdString(key.str()))
+                                         .arg(ok ? QStringLiteral("true") : QStringLiteral("false"))
+                                         .arg(h, 0, 'f', 2)
+                                         .arg(ghf.getMinHeight(), 0, 'f', 2)
+                                         .arg(ghf.getMaxHeight(), 0, 'f', 2);
+            }
+        }
     }
 }
 
@@ -1659,6 +1759,41 @@ bool OsgEarthWidget::sampleTerrainElevationMeters(double lonDeg, double latDeg, 
     osgEarth::GeoPoint point(wgs84, lonDeg, latDeg, 0.0, osgEarth::ALTMODE_ABSOLUTE);
     const osgEarth::ElevationSample sample = pool->getSample(point, nullptr);
     if (!sample.hasData()) {
+        osgEarth::Map* map = m_mapNode->getMap();
+        std::vector<osg::ref_ptr<osgEarth::ElevationLayer>> elevationLayers;
+        map->getOpenLayers(elevationLayers);
+        for (const auto& elevLayerRef : elevationLayers) {
+            osgEarth::ElevationLayer* elevLayer = elevLayerRef.get();
+            if (elevLayer == nullptr) {
+                continue;
+            }
+
+            const osgEarth::Profile* profile = elevLayer->getProfile();
+            if (profile == nullptr || profile->getSRS() == nullptr) {
+                continue;
+            }
+
+            osgEarth::GeoPoint pointInLayer = point.transform(profile->getSRS());
+            const unsigned lod = std::min(12u, elevLayer->getMaxLevel());
+            osgEarth::TileKey key = profile->createTileKey(pointInLayer, lod);
+            if (!key.valid()) {
+                continue;
+            }
+
+            osgEarth::GeoHeightField ghf = elevLayer->createHeightField(key);
+            if (!ghf.valid()) {
+                continue;
+            }
+
+            const float kNoDataSentinel = std::numeric_limits<float>::lowest();
+            float height = kNoDataSentinel;
+            if (ghf.getElevation(profile->getSRS(), pointInLayer.x(), pointInLayer.y(), osgEarth::INTERP_BILINEAR, nullptr, height)) {
+                if (std::isfinite(height) && height > -1.0e20f) {
+                    outMeters = static_cast<double>(height);
+                    return true;
+                }
+            }
+        }
         return false;
     }
 

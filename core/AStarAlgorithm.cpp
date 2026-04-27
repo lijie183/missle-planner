@@ -93,6 +93,51 @@ double approx3dDistanceMeters(
     return std::sqrt(horizontal * horizontal + dz * dz);
 }
 
+double lerp(double a, double b, double t) {
+    return a + (b - a) * t;
+}
+
+double routeProgressByProjection(
+    double lonDeg,
+    double latDeg,
+    double startLon,
+    double startLat,
+    double goalLon,
+    double goalLat) {
+    const double midLat = (startLat + goalLat) * 0.5;
+    const double metersPerLonDegree = kMetersPerLatDegree * std::max(0.1, std::cos(toRadians(midLat)));
+
+    const double sx = startLon * metersPerLonDegree;
+    const double sy = startLat * kMetersPerLatDegree;
+    const double gx = goalLon * metersPerLonDegree;
+    const double gy = goalLat * kMetersPerLatDegree;
+    const double px = lonDeg * metersPerLonDegree;
+    const double py = latDeg * kMetersPerLatDegree;
+
+    const double vx = gx - sx;
+    const double vy = gy - sy;
+    const double ux = px - sx;
+    const double uy = py - sy;
+    const double vv = vx * vx + vy * vy;
+    if (vv < 1e-6) {
+        return 0.0;
+    }
+
+    return std::clamp((ux * vx + uy * vy) / vv, 0.0, 1.0);
+}
+
+double ballisticCruiseAltitudeMeters(
+    double progress,
+    double startAlt,
+    double goalAlt,
+    double missionDistanceMeters) {
+    const double baseAlt = lerp(startAlt, goalAlt, progress);
+    const double missionKm = std::max(1.0, missionDistanceMeters / 1000.0);
+    const double peak = std::clamp(12000.0 + missionKm * 900.0, 14000.0, 90000.0);
+    const double arc = std::pow(std::sin(progress * 3.14159265358979323846), 0.9);
+    return baseAlt + peak * arc;
+}
+
 double terrainHeightMeters(double lonDeg, double latDeg) {
     // 使用平滑的合成地形，在离线情况下也能驱动地形规避策略。
     const double latWave = std::sin(toRadians(latDeg * 4.0));
@@ -187,8 +232,17 @@ SearchBounds buildSearchBounds(const mission::MissionRequest& request, const mis
     }
 
     bounds.minAltMeters = std::max(0.0, std::min(request.start.z(), request.goal.z()) - 400.0);
+    const double missionDistanceMeters = approxHorizontalDistanceMeters(
+        request.start.x(), request.start.y(), request.goal.x(), request.goal.y());
+    const double ballisticApex = ballisticCruiseAltitudeMeters(
+        0.5, request.start.z(), request.goal.z(), missionDistanceMeters);
+
     bounds.maxAltMeters = std::max(
-        {request.start.z(), request.goal.z(), highestThreatAltitude + 900.0, sampledTerrainMax + 1800.0});
+        {request.start.z(),
+         request.goal.z(),
+         highestThreatAltitude + 1800.0,
+         sampledTerrainMax + 3800.0,
+         ballisticApex + 6000.0});
 
     double altStep = std::max(80.0, options.altitudeStepMeters);
     int nz = static_cast<int>(std::ceil((bounds.maxAltMeters - bounds.minAltMeters) / altStep)) + 1;
@@ -466,6 +520,18 @@ RoutePlanResult AStarAlgorithm::plan(const MissionRequest& request) const {
             const double nextLat = keyToLatDeg(next, bounds);
             const double nextAlt = keyToAltMeters(next, bounds);
 
+            const double missionDistanceMeters = approxHorizontalDistanceMeters(
+                request.start.x(), request.start.y(), request.goal.x(), request.goal.y());
+            const double progress = routeProgressByProjection(
+                nextLon, nextLat,
+                request.start.x(), request.start.y(),
+                request.goal.x(), request.goal.y());
+            const double preferredAlt = ballisticCruiseAltitudeMeters(
+                progress,
+                request.start.z(),
+                request.goal.z(),
+                missionDistanceMeters);
+
             double edgeCost = approx3dDistanceMeters(
                 currentLon,
                 currentLat,
@@ -475,6 +541,12 @@ RoutePlanResult AStarAlgorithm::plan(const MissionRequest& request) const {
                 nextAlt);
 
             edgeCost += std::abs(nextAlt - currentAlt) * 0.2;
+
+            if (nextAlt < preferredAlt) {
+                edgeCost += (preferredAlt - nextAlt) * 0.085;
+            } else {
+                edgeCost += (nextAlt - preferredAlt) * 0.018;
+            }
 
             const double proximityPenalty = threatProximityPenalty(
                 nextLon,
