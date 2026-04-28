@@ -6,6 +6,7 @@
 
 #include <map>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include <osgEarth/GeoData>
@@ -63,6 +64,14 @@ private slots:
     void onDynamicReplan();
 
 private:
+    struct AlgorithmCompareItem {
+        std::string name;
+        mission::AllocationMethod method = mission::AllocationMethod::Hungarian;
+        mission::MultiMissionResult result;
+        double score = 0.0;
+        bool selected = false;
+    };
+
     void buildUi();
     osgEarth::GeoPoint makeGeoPoint(
         const QDoubleSpinBox* lonSpin,
@@ -91,6 +100,8 @@ private:
     void loadTargetParams(int index);
     void syncEarthWidgetFromConfig();
     void stopAllSimulations();
+    void populateDefaultScenario();
+    void updateAlgorithmCompareTable();
 
     OsgEarthWidget* m_earthWidget = nullptr;
     TelemetryPlotWidget* m_telemetryWidget = nullptr;
@@ -126,6 +137,7 @@ private:
 
     QListWidget* m_threatList = nullptr;
     QTableWidget* m_assignmentTable = nullptr;
+    QTableWidget* m_algoCompareTable = nullptr;
     QComboBox* m_failureMissileCombo = nullptr;
 
     QLabel* m_sceneDataSourceValue = nullptr;
@@ -146,6 +158,7 @@ private:
     QLabel* m_successCountValue = nullptr;
     QLabel* m_failureCountValue = nullptr;
     QLabel* m_totalTargetsValue = nullptr;
+    QLabel* m_bestAlgoValue = nullptr;
     QPushButton* m_exportHtmlButton = nullptr;
 
     QTimer m_simulationTimer;
@@ -157,6 +170,8 @@ private:
     std::vector<mission::ThreatZone> m_threatZones;
     std::vector<MissileRuntime> m_missileRuntimes;
     mission::MultiMissionResult m_lastMultiResult;
+    std::vector<AlgorithmCompareItem> m_algorithmComparisons;
+    mission::AllocationMethod m_lastPlanningMethod = mission::AllocationMethod::Hungarian;
 
     int m_selectedMissileIndex = -1;
     int m_selectedTargetIndex = -1;

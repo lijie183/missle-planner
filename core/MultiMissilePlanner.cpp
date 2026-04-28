@@ -66,6 +66,8 @@ std::vector<int> MultiMissilePlanner::runAllocation(
             return GeneticAllocator::solve(costMatrix, targetPriorities);
         case AllocationMethod::Greedy:
             return greedyAllocation(costMatrix, targetPriorities);
+        case AllocationMethod::BalancedGreedy:
+            return balancedGreedyAllocation(costMatrix, targetPriorities);
         default:
             return greedyAllocation(costMatrix, targetPriorities);
     }
@@ -99,6 +101,70 @@ std::vector<int> MultiMissilePlanner::greedyAllocation(
         }
         assignment[missileIdx] = targetIdx;
         targetUsed[targetIdx] = true;
+    }
+
+    return assignment;
+}
+
+std::vector<int> MultiMissilePlanner::balancedGreedyAllocation(
+    const std::vector<std::vector<double>>& costMatrix,
+    const std::vector<int>& targetPriorities) const {
+    const int missileCount = static_cast<int>(costMatrix.size());
+    if (missileCount == 0) {
+        return {};
+    }
+    const int targetCount = static_cast<int>(costMatrix[0].size());
+
+    std::vector<int> assignment(missileCount, -1);
+    std::vector<bool> targetUsed(targetCount, false);
+    std::vector<bool> missileUsed(missileCount, false);
+
+    // 优先保障高价值目标，再用距离代价做精细匹配。
+    std::vector<int> targetOrder(targetCount);
+    for (int t = 0; t < targetCount; ++t) {
+        targetOrder[t] = t;
+    }
+
+    std::stable_sort(targetOrder.begin(), targetOrder.end(), [&](int a, int b) {
+        if (targetPriorities[a] != targetPriorities[b]) {
+            return targetPriorities[a] > targetPriorities[b];
+        }
+
+        double bestA = std::numeric_limits<double>::infinity();
+        double bestB = std::numeric_limits<double>::infinity();
+        for (int m = 0; m < missileCount; ++m) {
+            bestA = std::min(bestA, costMatrix[m][a]);
+            bestB = std::min(bestB, costMatrix[m][b]);
+        }
+        return bestA < bestB;
+    });
+
+    for (int targetIdx : targetOrder) {
+        if (targetUsed[targetIdx]) {
+            continue;
+        }
+
+        int bestMissile = -1;
+        double bestScore = std::numeric_limits<double>::infinity();
+        for (int missileIdx = 0; missileIdx < missileCount; ++missileIdx) {
+            if (missileUsed[missileIdx]) {
+                continue;
+            }
+
+            const double distanceCost = costMatrix[missileIdx][targetIdx];
+            const double priorityGain = std::max(1, targetPriorities[targetIdx]);
+            const double score = distanceCost / static_cast<double>(priorityGain);
+            if (score < bestScore) {
+                bestScore = score;
+                bestMissile = missileIdx;
+            }
+        }
+
+        if (bestMissile >= 0) {
+            assignment[bestMissile] = targetIdx;
+            missileUsed[bestMissile] = true;
+            targetUsed[targetIdx] = true;
+        }
     }
 
     return assignment;

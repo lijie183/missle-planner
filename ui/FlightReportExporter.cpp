@@ -90,6 +90,19 @@ QJsonObject telemetryToJson(const mission::TelemetrySample& sample) {
     return obj;
 }
 
+  QJsonObject algorithmCompareToJson(const mission::AlgorithmCompareReport& algo) {
+    QJsonObject obj;
+    obj[QStringLiteral("name")] = algo.name;
+    obj[QStringLiteral("selected")] = algo.selected;
+    obj[QStringLiteral("successRate")] = algo.successRate;
+    obj[QStringLiteral("successCount")] = algo.successCount;
+    obj[QStringLiteral("failureCount")] = algo.failureCount;
+    obj[QStringLiteral("planningTimeMs")] = algo.planningTimeMs;
+    obj[QStringLiteral("averagePathKm")] = algo.averagePathKm;
+    obj[QStringLiteral("score")] = algo.score;
+    return obj;
+  }
+
 QString escapeHtml(const QString& text) {
     QString result = text;
     result.replace('&', QStringLiteral("&amp;"));
@@ -111,6 +124,7 @@ QString buildFlightReportHtml(const FlightReportData& report) {
     root[QStringLiteral("targets")] = QJsonArray();
     root[QStringLiteral("threats")] = QJsonArray();
     root[QStringLiteral("routes")] = QJsonArray();
+    root[QStringLiteral("algorithmComparisons")] = QJsonArray();
     root[QStringLiteral("planningResult")] = QJsonObject();
     root[QStringLiteral("successCount")] = report.planningResult.successCount;
     root[QStringLiteral("failureCount")] = report.planningResult.failureCount;
@@ -173,6 +187,12 @@ QString buildFlightReportHtml(const FlightReportData& report) {
         routes.append(routeObj);
     }
     root[QStringLiteral("routes")] = routes;
+
+    QJsonArray algorithmComparisons;
+    for (const auto& algo : report.algorithmComparisons) {
+      algorithmComparisons.append(algorithmCompareToJson(algo));
+    }
+    root[QStringLiteral("algorithmComparisons")] = algorithmComparisons;
 
     QString json = QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Compact));
     json.replace(QStringLiteral("</"), QStringLiteral("<\\/"));
@@ -622,6 +642,7 @@ body {
   const targets = report.targets || [];
   const threats = report.threats || [];
   const routes = report.routes || [];
+  const algorithmComparisons = report.algorithmComparisons || [];
 
   const missionCards = document.createElement('section');
   missionCards.className = 'section';
@@ -688,6 +709,39 @@ body {
   });
   detailSection.appendChild(detailGrid);
   app.appendChild(detailSection);
+
+  const algorithmSection = document.createElement('section');
+  algorithmSection.className = 'section';
+  algorithmSection.innerHTML = sectionTitle('算法对比', '四种算法结果与综合评分对照');
+  if (algorithmComparisons.length > 0) {
+    const rows = algorithmComparisons.map((algo) => {
+      const selectedText = algo.selected ? '是' : '否';
+      const color = algo.selected ? '#7ef0aa' : '#9eb4c8';
+      return `<tr>
+        <td>${esc(algo.name || '--')}</td>
+        <td style="color:${color};font-weight:700;">${selectedText}</td>
+        <td>${fmt((algo.successRate || 0) * 100, 1)}%</td>
+        <td>${algo.successCount || 0} / ${algo.failureCount || 0}</td>
+        <td>${fmt(algo.planningTimeMs || 0, 2)}</td>
+        <td>${fmt(algo.averagePathKm || 0, 2)}</td>
+        <td>${fmt(algo.score || 0, 1)}</td>
+      </tr>`;
+    }).join('');
+
+    algorithmSection.insertAdjacentHTML('beforeend', `
+      <div class="card">
+        <div class="card-header"><h3>算法评估表</h3><span class="subtle">支持报告复盘与版本对照</span></div>
+        <div class="card-body">
+          <table class="waypoints">
+            <thead><tr><th>算法</th><th>采用</th><th>成功率</th><th>成功/失败</th><th>耗时(ms)</th><th>平均航程(km)</th><th>评分</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>`);
+  } else {
+    algorithmSection.insertAdjacentHTML('beforeend', '<div class="empty">本次规划未记录算法对比数据</div>');
+  }
+  app.appendChild(algorithmSection);
 
   const overallSection = document.createElement('section');
   overallSection.className = 'section';

@@ -43,6 +43,10 @@ private:
     std::vector<int> greedyAllocation(
         const std::vector<std::vector<double>>& costMatrix,
         const std::vector<int>& targetPriorities) const;
+
+    std::vector<int> balancedGreedyAllocation(
+        const std::vector<std::vector<double>>& costMatrix,
+        const std::vector<int>& targetPriorities) const;
 };
 
 }  // namespace mission

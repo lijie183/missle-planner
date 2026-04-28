@@ -1,7 +1,9 @@
 #include "ui/MainWindow.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <limits>
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -21,6 +23,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSaveFile>
+#include <QSplitter>
 #include <QSpinBox>
 #include <QStackedWidget>
 #include <QStatusBar>
@@ -128,6 +131,58 @@ double defaultSpeedForType(int type) {
     }
 }
 
+mission::AllocationMethod allocationMethodFromComboIndex(int index) {
+    switch (index) {
+        case 1:
+            return mission::AllocationMethod::Hungarian;
+        case 2:
+            return mission::AllocationMethod::Genetic;
+        case 3:
+            return mission::AllocationMethod::Greedy;
+        case 4:
+            return mission::AllocationMethod::BalancedGreedy;
+        default:
+            return mission::AllocationMethod::Hungarian;
+    }
+}
+
+QString allocationMethodName(mission::AllocationMethod method) {
+    switch (method) {
+        case mission::AllocationMethod::Hungarian:
+            return QStringLiteral("匈牙利算法");
+        case mission::AllocationMethod::Genetic:
+            return QStringLiteral("遗传算法");
+        case mission::AllocationMethod::Greedy:
+            return QStringLiteral("贪心算法");
+        case mission::AllocationMethod::BalancedGreedy:
+            return QStringLiteral("优先级均衡贪心");
+        default:
+            return QStringLiteral("未知算法");
+    }
+}
+
+double computeResultScore(const mission::MultiMissionResult& result) {
+    double totalPathMeters = 0.0;
+    int plannedCount = 0;
+    for (const auto& a : result.assignments) {
+        if (!a.planned) {
+            continue;
+        }
+        totalPathMeters += a.planResult.metrics.pathLengthMeters;
+        ++plannedCount;
+    }
+
+    const double avgPathKm = plannedCount > 0
+                                 ? (totalPathMeters / static_cast<double>(plannedCount)) / 1000.0
+                                 : 1e6;
+
+    return result.successRate * 10000.0 +
+           static_cast<double>(result.successCount) * 600.0 -
+           static_cast<double>(result.failureCount) * 900.0 -
+           result.totalPlanningTimeMs * 0.6 -
+           avgPathKm * 12.0;
+}
+
 }  // namespace
 
 MainWindow::MainWindow(QWidget* parent)
@@ -140,9 +195,15 @@ MainWindow::MainWindow(QWidget* parent)
     m_nextMissileId = 1;
     m_nextTargetId = 1;
 
+    populateDefaultScenario();
+
     refreshMissileList();
     refreshTargetList();
+    refreshThreatList();
     syncEarthWidgetFromConfig();
+    if (m_earthWidget != nullptr) {
+        m_earthWidget->setThreatZones(m_threatZones);
+    }
 
     statusBar()->showMessage(QStringLiteral("系统就绪：请配置导弹与目标参数后执行多导弹规划。"));
 }
@@ -273,15 +334,6 @@ void MainWindow::onPlanRoute() {
 
     mission::MultiMissilePlanner planner;
     mission::MultiMissilePlanner::Options options;
-
-    const int allocIndex = m_allocationCombo->currentIndex();
-    switch (allocIndex) {
-        case 0: options.method = mission::AllocationMethod::Hungarian; break;
-        case 1: options.method = mission::AllocationMethod::Genetic; break;
-        case 2: options.method = mission::AllocationMethod::Greedy; break;
-        default: options.method = mission::AllocationMethod::Hungarian; break;
-    }
-
     options.astarOptions.gridStepDeg = m_gridStepSpin->value();
     options.astarOptions.safetyClearanceMeters = m_clearanceSpin->value();
 
@@ -302,7 +354,60 @@ void MainWindow::onPlanRoute() {
         options.astarOptions.threatPenaltyScale = 0.0;
     }
 
-    m_lastMultiResult = planner.plan(m_missileConfigs, m_targetConfigs, m_threatZones, options);
+    const std::array<mission::AllocationMethod, 4> methods = {
+        mission::AllocationMethod::Hungarian,
+        mission::AllocationMethod::Genetic,
+        mission::AllocationMethod::Greedy,
+        mission::AllocationMethod::BalancedGreedy};
+
+    m_algorithmComparisons.clear();
+    m_algorithmComparisons.reserve(methods.size());
+
+    for (const auto method : methods) {
+        options.method = method;
+
+        AlgorithmCompareItem item;
+        item.method = method;
+        item.name = allocationMethodName(method).toStdString();
+        item.result = planner.plan(m_missileConfigs, m_targetConfigs, m_threatZones, options);
+        item.score = computeResultScore(item.result);
+        m_algorithmComparisons.push_back(item);
+    }
+
+    const int allocIndex = m_allocationCombo->currentIndex();
+    const bool autoSelectBest = (allocIndex == 0);
+
+    mission::AllocationMethod selectedMethod = allocationMethodFromComboIndex(allocIndex);
+    int selectedIndex = -1;
+
+    if (autoSelectBest) {
+        double bestScore = -std::numeric_limits<double>::infinity();
+        for (int i = 0; i < static_cast<int>(m_algorithmComparisons.size()); ++i) {
+            if (m_algorithmComparisons[i].score > bestScore) {
+                bestScore = m_algorithmComparisons[i].score;
+                selectedIndex = i;
+            }
+        }
+    } else {
+        for (int i = 0; i < static_cast<int>(m_algorithmComparisons.size()); ++i) {
+            if (m_algorithmComparisons[i].method == selectedMethod) {
+                selectedIndex = i;
+                break;
+            }
+        }
+    }
+
+    if (selectedIndex < 0) {
+        selectedIndex = 0;
+    }
+
+    for (int i = 0; i < static_cast<int>(m_algorithmComparisons.size()); ++i) {
+        m_algorithmComparisons[i].selected = (i == selectedIndex);
+    }
+
+    m_lastPlanningMethod = m_algorithmComparisons[selectedIndex].method;
+    m_lastMultiResult = m_algorithmComparisons[selectedIndex].result;
+    updateAlgorithmCompareTable();
 
     m_missileRuntimes.clear();
     m_missileRuntimes.resize(m_missileConfigs.size());
@@ -351,10 +456,9 @@ void MainWindow::onPlanRoute() {
 
     refreshSceneDataSourceLabel();
 
-    const QString methodNames[] = {QStringLiteral("匈牙利算法"), QStringLiteral("遗传算法"), QStringLiteral("贪心算法")};
     statusBar()->showMessage(
         QStringLiteral("多导弹规划完成(%1)：成功 %2 / 失败 %3，成功率 %4%")
-            .arg(methodNames[allocIndex])
+            .arg(allocationMethodName(m_lastPlanningMethod))
             .arg(m_lastMultiResult.successCount)
             .arg(m_lastMultiResult.failureCount)
             .arg(m_lastMultiResult.successRate * 100.0, 0, 'f', 1),
@@ -599,11 +703,11 @@ void MainWindow::onDynamicReplan() {
     mission::MultiMissilePlanner::Options options;
 
     const int allocIndex = m_allocationCombo->currentIndex();
-    switch (allocIndex) {
-        case 0: options.method = mission::AllocationMethod::Hungarian; break;
-        case 1: options.method = mission::AllocationMethod::Genetic; break;
-        case 2: options.method = mission::AllocationMethod::Greedy; break;
-        default: options.method = mission::AllocationMethod::Hungarian; break;
+    if (allocIndex == 0) {
+        options.method = m_lastPlanningMethod;
+    } else {
+        options.method = allocationMethodFromComboIndex(allocIndex);
+        m_lastPlanningMethod = options.method;
     }
 
     options.astarOptions.gridStepDeg = m_gridStepSpin->value();
@@ -673,6 +777,10 @@ void MainWindow::onDynamicReplan() {
             .arg(m_lastMultiResult.successCount)
             .arg(m_lastMultiResult.failureCount),
         5000);
+
+    if (m_bestAlgoValue != nullptr) {
+        m_bestAlgoValue->setText(allocationMethodName(m_lastPlanningMethod));
+    }
 }
 
 void MainWindow::buildUi() {
@@ -695,6 +803,9 @@ void MainWindow::buildUi() {
         "QPushButton:hover { background: #2591d4; }"
         "QPushButton:pressed { background: #17689b; }"
         "QDoubleSpinBox, QSpinBox, QComboBox, QListWidget, QTableWidget { background: #0f1b28; border: 1px solid #375571; border-radius: 4px; color: #e8f3ff; selection-background-color: #2e78ad; }"
+        "QListWidget::item { padding: 5px 4px; border-bottom: 1px solid rgba(72, 107, 139, 0.35); }"
+        "QListWidget::item:selected { background: #1f5f8f; color: #f4faff; }"
+        "QSplitter::handle { background: #16283d; border: 1px solid #2d4f70; }"
         "QTableWidget::item { padding: 3px; }"
         "QHeaderView::section { background: #13263b; color: #9ec2e4; border: 1px solid #2d455f; padding: 4px; }"
         "QStatusBar { background: #0a131f; color: #9ec2e4; }"));
@@ -777,9 +888,11 @@ void MainWindow::buildUi() {
 
     m_allocationCombo = new QComboBox(algoGroup);
     m_allocationCombo->addItems({
+        QStringLiteral("自动优选（四算法并行评估）"),
         QStringLiteral("匈牙利算法（最优分配）"),
         QStringLiteral("遗传算法（复杂场景）"),
-        QStringLiteral("贪心算法（快速估算）")});
+        QStringLiteral("贪心算法（快速估算）"),
+        QStringLiteral("优先级均衡贪心（改进）")});
 
     m_profileCombo = new QComboBox(algoGroup);
     m_profileCombo->addItems({
@@ -835,14 +948,31 @@ void MainWindow::buildUi() {
     commandLayout->addWidget(mapToolsGroup);
     commandLayout->addStretch(1);
 
-    auto* mapGroup = new QGroupBox(QStringLiteral("任务规划态势图（导弹 / 目标 / 威胁）"), planningPage);
+    auto* planningRightPane = new QWidget(planningPage);
+    auto* planningRightLayout = new QVBoxLayout(planningRightPane);
+    planningRightLayout->setContentsMargins(0, 0, 0, 0);
+    planningRightLayout->setSpacing(8);
+
+    auto* telemetryGroup = new QGroupBox(
+        QStringLiteral("飞行遥测分析（高度 / 弹目距 / 速度 / 俯仰 / 航向 / 加速度）"),
+        planningRightPane);
+    auto* telemetryLayout = new QVBoxLayout(telemetryGroup);
+    telemetryLayout->setContentsMargins(8, 10, 8, 8);
+    m_telemetryWidget = new TelemetryPlotWidget(telemetryGroup);
+    telemetryLayout->addWidget(m_telemetryWidget);
+    telemetryGroup->setMinimumHeight(320);
+
+    auto* mapGroup = new QGroupBox(QStringLiteral("任务规划态势图（导弹 / 目标 / 威胁）"), planningRightPane);
     auto* mapLayout = new QVBoxLayout(mapGroup);
     mapLayout->setContentsMargins(6, 10, 6, 6);
     m_earthWidget = new OsgEarthWidget(mapGroup);
     mapLayout->addWidget(m_earthWidget);
 
+    planningRightLayout->addWidget(telemetryGroup, 0);
+    planningRightLayout->addWidget(mapGroup, 1);
+
     planningLayout->addWidget(commandPanel, 0);
-    planningLayout->addWidget(mapGroup, 1);
+    planningLayout->addWidget(planningRightPane, 1);
 
     auto* scenarioPage = new QWidget(pageStack);
     auto* scenarioLayout = new QVBoxLayout(scenarioPage);
@@ -856,19 +986,22 @@ void MainWindow::buildUi() {
         QStringLiteral("真实卫星地球（离线数据优先）"),
         QStringLiteral("演示态势地球（简化模型）")});
     m_sceneDataSourceValue = new QLabel(QStringLiteral("待检测（运行后加载）"), sceneGroup);
+    auto* reloadPresetButton = new QPushButton(QStringLiteral("重载典型战场样例"), sceneGroup);
     sceneLayout->addRow(QStringLiteral("地球模型"), m_globeModeCombo);
     sceneLayout->addRow(QStringLiteral("数据源"), m_sceneDataSourceValue);
+    sceneLayout->addRow(QStringLiteral("快速填充"), reloadPresetButton);
     scenarioLayout->addWidget(sceneGroup);
 
-    auto* entitiesRow = new QHBoxLayout;
-    entitiesRow->setSpacing(8);
+    auto* entitiesSplitter = new QSplitter(Qt::Horizontal, scenarioPage);
+    entitiesSplitter->setChildrenCollapsible(false);
+    entitiesSplitter->setHandleWidth(8);
 
-    auto* missileGroup = new QGroupBox(QStringLiteral("蓝方导弹编组"), scenarioPage);
+    auto* missileGroup = new QGroupBox(QStringLiteral("蓝方导弹编组"), entitiesSplitter);
     auto* missileOuterLayout = new QVBoxLayout(missileGroup);
 
     auto* missileListRow = new QHBoxLayout;
     m_missileList = new QListWidget(missileGroup);
-    m_missileList->setMaximumHeight(190);
+    m_missileList->setMinimumHeight(460);
     auto* missileAddBtn = new QPushButton(QStringLiteral("添加"), missileGroup);
     missileAddBtn->setMinimumWidth(72);
     auto* missileRemoveBtn = new QPushButton(QStringLiteral("移除"), missileGroup);
@@ -904,13 +1037,14 @@ void MainWindow::buildUi() {
     missileParamLayout->addWidget(new QLabel(QStringLiteral("速度(m/s)"), missileGroup), r, 0);
     missileParamLayout->addWidget(m_missileSpeedSpin, r, 1);
     missileOuterLayout->addLayout(missileParamLayout);
+    missileOuterLayout->addWidget(new QLabel(QStringLiteral("提示：双击条目后可直接修改参数并实时同步到地球态势图。"), missileGroup));
 
-    auto* targetGroup = new QGroupBox(QStringLiteral("红方目标编组"), scenarioPage);
+    auto* targetGroup = new QGroupBox(QStringLiteral("红方目标编组"), entitiesSplitter);
     auto* targetOuterLayout = new QVBoxLayout(targetGroup);
 
     auto* targetListRow = new QHBoxLayout;
     m_targetList = new QListWidget(targetGroup);
-    m_targetList->setMaximumHeight(190);
+    m_targetList->setMinimumHeight(460);
     auto* targetAddBtn = new QPushButton(QStringLiteral("添加"), targetGroup);
     targetAddBtn->setMinimumWidth(72);
     auto* targetRemoveBtn = new QPushButton(QStringLiteral("移除"), targetGroup);
@@ -943,8 +1077,9 @@ void MainWindow::buildUi() {
     targetParamLayout->addWidget(new QLabel(QStringLiteral("优先级(1-10)"), targetGroup), r, 2);
     targetParamLayout->addWidget(m_targetPrioritySpin, r, 3);
     targetOuterLayout->addLayout(targetParamLayout);
+    targetOuterLayout->addWidget(new QLabel(QStringLiteral("提示：高价值目标建议优先级设为 8-10。"), targetGroup));
 
-    auto* threatGroup = new QGroupBox(QStringLiteral("威胁区配置"), scenarioPage);
+    auto* threatGroup = new QGroupBox(QStringLiteral("威胁区配置"), entitiesSplitter);
     auto* threatLayout = new QGridLayout(threatGroup);
 
     m_threatLon = createSpinBox(-180.0, 180.0, 111.2000, 4, 0.01, threatGroup);
@@ -970,14 +1105,19 @@ void MainWindow::buildUi() {
     threatLayout->addWidget(clearThreatButton, r, 2, 1, 2);
 
     m_threatList = new QListWidget(threatGroup);
-    m_threatList->setMaximumHeight(150);
+    m_threatList->setMinimumHeight(260);
     ++r;
     threatLayout->addWidget(m_threatList, r, 0, 1, 4);
+    ++r;
+    threatLayout->addWidget(new QLabel(QStringLiteral("建议：半径 8-50km、上限 8-20km 可覆盖常见防空拦截包线。"), threatGroup), r, 0, 1, 4);
 
-    entitiesRow->addWidget(missileGroup, 1);
-    entitiesRow->addWidget(targetGroup, 1);
-    entitiesRow->addWidget(threatGroup, 1);
-    scenarioLayout->addLayout(entitiesRow, 1);
+    entitiesSplitter->addWidget(missileGroup);
+    entitiesSplitter->addWidget(targetGroup);
+    entitiesSplitter->addWidget(threatGroup);
+    entitiesSplitter->setStretchFactor(0, 1);
+    entitiesSplitter->setStretchFactor(1, 1);
+    entitiesSplitter->setStretchFactor(2, 1);
+    scenarioLayout->addWidget(entitiesSplitter, 1);
 
     auto* resultPage = new QWidget(pageStack);
     auto* resultLayout = new QHBoxLayout(resultPage);
@@ -988,16 +1128,6 @@ void MainWindow::buildUi() {
     auto* analysisLayout = new QVBoxLayout(analysisPane);
     analysisLayout->setContentsMargins(0, 0, 0, 0);
     analysisLayout->setSpacing(8);
-
-    auto* telemetryGroup = new QGroupBox(
-        QStringLiteral("飞行遥测分析（高度 / 弹目距 / 速度 / 俯仰 / 航向 / 加速度）"),
-        analysisPane);
-    auto* telemetryLayout = new QVBoxLayout(telemetryGroup);
-    telemetryLayout->setContentsMargins(8, 10, 8, 8);
-    m_telemetryWidget = new TelemetryPlotWidget(telemetryGroup);
-    telemetryLayout->addWidget(m_telemetryWidget);
-    telemetryGroup->setMinimumHeight(360);
-    analysisLayout->addWidget(telemetryGroup, 1);
 
     auto* assignGroup = new QGroupBox(QStringLiteral("分配结果详情"), analysisPane);
     auto* assignLayout = new QVBoxLayout(assignGroup);
@@ -1011,6 +1141,25 @@ void MainWindow::buildUi() {
     m_assignmentTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     assignLayout->addWidget(m_assignmentTable);
     analysisLayout->addWidget(assignGroup, 1);
+
+    auto* algoCompareGroup = new QGroupBox(QStringLiteral("算法对比分析（四算法）"), analysisPane);
+    auto* algoCompareLayout = new QVBoxLayout(algoCompareGroup);
+    m_algoCompareTable = new QTableWidget(algoCompareGroup);
+    m_algoCompareTable->setColumnCount(7);
+    m_algoCompareTable->setHorizontalHeaderLabels({
+        QStringLiteral("算法"),
+        QStringLiteral("是否采用"),
+        QStringLiteral("成功率"),
+        QStringLiteral("成功/失败"),
+        QStringLiteral("规划耗时(ms)"),
+        QStringLiteral("平均航程(km)"),
+        QStringLiteral("综合评分")});
+    m_algoCompareTable->horizontalHeader()->setStretchLastSection(true);
+    m_algoCompareTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    m_algoCompareTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_algoCompareTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    algoCompareLayout->addWidget(m_algoCompareTable);
+    analysisLayout->addWidget(algoCompareGroup, 1);
 
     auto* resultSidePanel = new QFrame(resultPage);
     resultSidePanel->setMinimumWidth(370);
@@ -1029,6 +1178,7 @@ void MainWindow::buildUi() {
     m_etaValue = new QLabel(QStringLiteral("--"), metricGroup);
     m_phaseValue = new QLabel(QStringLiteral("待命"), metricGroup);
     m_currentSpeedValue = new QLabel(QStringLiteral("0.0"), metricGroup);
+    m_bestAlgoValue = new QLabel(QStringLiteral("--"), metricGroup);
 
     metricLayout->addRow(QStringLiteral("规划耗时(ms)"), m_planTimeValue);
     metricLayout->addRow(QStringLiteral("航程长度(m)"), m_pathLengthValue);
@@ -1037,6 +1187,7 @@ void MainWindow::buildUi() {
     metricLayout->addRow(QStringLiteral("预计剩余(s)"), m_etaValue);
     metricLayout->addRow(QStringLiteral("飞行阶段"), m_phaseValue);
     metricLayout->addRow(QStringLiteral("当前速度(m/s)"), m_currentSpeedValue);
+    metricLayout->addRow(QStringLiteral("当前规划算法"), m_bestAlgoValue);
     resultSideLayout->addWidget(metricGroup);
 
     auto* effectGroup = new QGroupBox(QStringLiteral("任务效果评估"), resultSidePanel);
@@ -1115,12 +1266,40 @@ void MainWindow::buildUi() {
         refreshSceneDataSourceLabel();
     });
 
+    connect(reloadPresetButton, &QPushButton::clicked, this, [this]() {
+        stopAllSimulations();
+        m_missileConfigs.clear();
+        m_targetConfigs.clear();
+        m_threatZones.clear();
+        m_missileRuntimes.clear();
+        m_algorithmComparisons.clear();
+        m_lastMultiResult = {};
+        m_nextMissileId = 1;
+        m_nextTargetId = 1;
+
+        populateDefaultScenario();
+        refreshMissileList();
+        refreshTargetList();
+        refreshThreatList();
+        syncEarthWidgetFromConfig();
+        if (m_earthWidget != nullptr) {
+            m_earthWidget->setThreatZones(m_threatZones);
+            m_earthWidget->focusOnAllRoutes();
+        }
+        updateAlgorithmCompareTable();
+        resetTelemetryPanel();
+        updateAssignmentTable();
+        updateOverallMetrics();
+        statusBar()->showMessage(QStringLiteral("已重载典型战场样例。"), 3000);
+    });
+
     connect(m_missileTypeCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
         m_missileSpeedSpin->setValue(defaultSpeedForType(index));
     });
 
     updateScenarioSummary();
     refreshSceneDataSourceLabel();
+    updateAlgorithmCompareTable();
 }
 
 osgEarth::GeoPoint MainWindow::makeGeoPoint(
@@ -1302,6 +1481,32 @@ void MainWindow::onExportHtmlReport() {
         }
 
         report.routes.push_back(routeReport);
+    }
+
+    for (const auto& item : m_algorithmComparisons) {
+        mission::AlgorithmCompareReport algo;
+        algo.name = QString::fromStdString(item.name);
+        algo.selected = item.selected;
+        algo.successRate = item.result.successRate;
+        algo.successCount = item.result.successCount;
+        algo.failureCount = item.result.failureCount;
+        algo.planningTimeMs = item.result.totalPlanningTimeMs;
+        algo.score = item.score;
+
+        double pathMeters = 0.0;
+        int plannedCount = 0;
+        for (const auto& a : item.result.assignments) {
+            if (!a.planned) {
+                continue;
+            }
+            pathMeters += a.planResult.metrics.pathLengthMeters;
+            ++plannedCount;
+        }
+        if (plannedCount > 0) {
+            algo.averagePathKm = (pathMeters / static_cast<double>(plannedCount)) / 1000.0;
+        }
+
+        report.algorithmComparisons.push_back(algo);
     }
 
     const QString defaultName = QDir::current().filePath(
@@ -1560,6 +1765,90 @@ void MainWindow::syncEarthWidgetFromConfig() {
         osgEarth::GeoPoint targetPoint(
             wgs84, tc.lonDeg, tc.latDeg, tc.altMeters, osgEarth::ALTMODE_ABSOLUTE);
         m_earthWidget->setMissileTargetPoint(static_cast<int>(j), targetPoint);
+    }
+}
+
+void MainWindow::populateDefaultScenario() {
+    if (!m_missileConfigs.empty() || !m_targetConfigs.empty() || !m_threatZones.empty()) {
+        return;
+    }
+
+    m_missileConfigs = {
+        {"M1", "导弹-1", 103.80, 32.10, 1800.0, 0, 880.0},
+        {"M2", "导弹-2", 105.20, 30.60, 2000.0, 1, 980.0},
+        {"M3", "导弹-3", 107.00, 31.40, 2200.0, 1, 1020.0},
+        {"M4", "导弹-4", 101.70, 29.90, 1600.0, 0, 860.0},
+        {"M5", "导弹-5", 109.30, 28.70, 2600.0, 2, 1320.0},
+        {"M6", "导弹-6", 111.40, 30.20, 2400.0, 2, 1280.0},
+    };
+
+    m_targetConfigs = {
+        {"T1", "指挥中心A", 118.40, 40.20, 2200.0, 10},
+        {"T2", "指挥中心B", 117.30, 39.40, 2100.0, 10},
+        {"T3", "雷达站A", 116.70, 37.20, 1800.0, 8},
+        {"T4", "补给站A", 114.90, 36.10, 1500.0, 6},
+        {"T5", "防空阵地A", 115.60, 38.30, 1600.0, 7},
+        {"T6", "通信节点", 119.20, 36.70, 1200.0, 5},
+    };
+
+    m_threatZones = {
+        {111.20, 36.60, 48000.0, 0.0, 18000.0},
+        {114.80, 37.80, 36000.0, 0.0, 16000.0},
+        {116.10, 39.20, 42000.0, 0.0, 20000.0},
+        {118.20, 35.90, 28000.0, 0.0, 12000.0},
+        {113.40, 34.70, 25000.0, 0.0, 10000.0},
+    };
+
+    m_nextMissileId = static_cast<int>(m_missileConfigs.size()) + 1;
+    m_nextTargetId = static_cast<int>(m_targetConfigs.size()) + 1;
+}
+
+void MainWindow::updateAlgorithmCompareTable() {
+    if (m_algoCompareTable == nullptr) {
+        return;
+    }
+
+    m_algoCompareTable->setRowCount(static_cast<int>(m_algorithmComparisons.size()));
+
+    for (int i = 0; i < static_cast<int>(m_algorithmComparisons.size()); ++i) {
+        const auto& item = m_algorithmComparisons[i];
+        double pathMeters = 0.0;
+        int plannedCount = 0;
+        for (const auto& a : item.result.assignments) {
+            if (!a.planned) {
+                continue;
+            }
+            pathMeters += a.planResult.metrics.pathLengthMeters;
+            ++plannedCount;
+        }
+        const double avgPathKm = plannedCount > 0
+                                     ? (pathMeters / static_cast<double>(plannedCount)) / 1000.0
+                                     : 0.0;
+
+        auto* algoItem = new QTableWidgetItem(QString::fromStdString(item.name));
+        auto* selectedItem = new QTableWidgetItem(item.selected ? QStringLiteral("是") : QStringLiteral("否"));
+        auto* rateItem = new QTableWidgetItem(QStringLiteral("%1%").arg(item.result.successRate * 100.0, 0, 'f', 1));
+        auto* hitItem = new QTableWidgetItem(QStringLiteral("%1 / %2").arg(item.result.successCount).arg(item.result.failureCount));
+        auto* timeItem = new QTableWidgetItem(QStringLiteral("%1").arg(item.result.totalPlanningTimeMs, 0, 'f', 2));
+        auto* pathItem = new QTableWidgetItem(QStringLiteral("%1").arg(avgPathKm, 0, 'f', 2));
+        auto* scoreItem = new QTableWidgetItem(QStringLiteral("%1").arg(item.score, 0, 'f', 1));
+
+        if (item.selected) {
+            algoItem->setForeground(QColor(110, 241, 159));
+            selectedItem->setForeground(QColor(110, 241, 159));
+        }
+
+        m_algoCompareTable->setItem(i, 0, algoItem);
+        m_algoCompareTable->setItem(i, 1, selectedItem);
+        m_algoCompareTable->setItem(i, 2, rateItem);
+        m_algoCompareTable->setItem(i, 3, hitItem);
+        m_algoCompareTable->setItem(i, 4, timeItem);
+        m_algoCompareTable->setItem(i, 5, pathItem);
+        m_algoCompareTable->setItem(i, 6, scoreItem);
+    }
+
+    if (m_bestAlgoValue != nullptr) {
+        m_bestAlgoValue->setText(allocationMethodName(m_lastPlanningMethod));
     }
 }
 

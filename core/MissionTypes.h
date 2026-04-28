@@ -48,7 +48,8 @@ struct RoutePlanResult {
 enum class AllocationMethod {
     Hungarian,
     Genetic,
-    Greedy
+    Greedy,
+    BalancedGreedy
 };
 
 struct MissileConfig {

@@ -19,6 +19,17 @@ struct FlightRouteReport {
     std::vector<mission::TelemetrySample> telemetry;
 };
 
+struct AlgorithmCompareReport {
+    QString name;
+    bool selected = false;
+    double successRate = 0.0;
+    int successCount = 0;
+    int failureCount = 0;
+    double planningTimeMs = 0.0;
+    double averagePathKm = 0.0;
+    double score = 0.0;
+};
+
 struct FlightReportData {
     QString title;
     QDateTime generatedAt;
@@ -27,6 +38,7 @@ struct FlightReportData {
     std::vector<mission::ThreatZone> threats;
     mission::MultiMissionResult planningResult;
     std::vector<FlightRouteReport> routes;
+    std::vector<AlgorithmCompareReport> algorithmComparisons;
 };
 
 QString buildFlightReportHtml(const FlightReportData& report);
