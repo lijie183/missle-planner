@@ -336,6 +336,8 @@ void MainWindow::onPlanRoute() {
     mission::MultiMissilePlanner::Options options;
     options.astarOptions.gridStepDeg = m_gridStepSpin->value();
     options.astarOptions.safetyClearanceMeters = m_clearanceSpin->value();
+    options.astarOptions.maxAltitudeLevels = 24;
+    options.astarOptions.maxIterations = 220000;
 
     const QString profile = m_profileCombo->currentText();
     if (profile.contains(QStringLiteral("低空"))) {
@@ -360,16 +362,22 @@ void MainWindow::onPlanRoute() {
         mission::AllocationMethod::Greedy,
         mission::AllocationMethod::BalancedGreedy};
 
+    mission::MultiMissilePlanner::Options quickOptions = options;
+    quickOptions.astarOptions.gridStepDeg = std::min(0.12, options.astarOptions.gridStepDeg * 1.8);
+    quickOptions.astarOptions.altitudeStepMeters = std::max(200.0, options.astarOptions.altitudeStepMeters * 1.35);
+    quickOptions.astarOptions.maxAltitudeLevels = 16;
+    quickOptions.astarOptions.maxIterations = std::max(90000, options.astarOptions.maxIterations / 2);
+
     m_algorithmComparisons.clear();
     m_algorithmComparisons.reserve(methods.size());
 
     for (const auto method : methods) {
-        options.method = method;
+        quickOptions.method = method;
 
         AlgorithmCompareItem item;
         item.method = method;
         item.name = allocationMethodName(method).toStdString();
-        item.result = planner.plan(m_missileConfigs, m_targetConfigs, m_threatZones, options);
+        item.result = planner.plan(m_missileConfigs, m_targetConfigs, m_threatZones, quickOptions);
         item.score = computeResultScore(item.result);
         m_algorithmComparisons.push_back(item);
     }
@@ -404,6 +412,11 @@ void MainWindow::onPlanRoute() {
     for (int i = 0; i < static_cast<int>(m_algorithmComparisons.size()); ++i) {
         m_algorithmComparisons[i].selected = (i == selectedIndex);
     }
+
+    options.method = m_algorithmComparisons[selectedIndex].method;
+    m_algorithmComparisons[selectedIndex].result =
+        planner.plan(m_missileConfigs, m_targetConfigs, m_threatZones, options);
+    m_algorithmComparisons[selectedIndex].score = computeResultScore(m_algorithmComparisons[selectedIndex].result);
 
     m_lastPlanningMethod = m_algorithmComparisons[selectedIndex].method;
     m_lastMultiResult = m_algorithmComparisons[selectedIndex].result;
@@ -712,6 +725,8 @@ void MainWindow::onDynamicReplan() {
 
     options.astarOptions.gridStepDeg = m_gridStepSpin->value();
     options.astarOptions.safetyClearanceMeters = m_clearanceSpin->value();
+    options.astarOptions.maxAltitudeLevels = 24;
+    options.astarOptions.maxIterations = 220000;
 
     const QString profile = m_profileCombo->currentText();
     if (profile.contains(QStringLiteral("低空"))) {
@@ -998,23 +1013,10 @@ void MainWindow::buildUi() {
 
     auto* missileGroup = new QGroupBox(QStringLiteral("蓝方导弹编组"), entitiesSplitter);
     auto* missileOuterLayout = new QVBoxLayout(missileGroup);
-
-    auto* missileListRow = new QHBoxLayout;
-    m_missileList = new QListWidget(missileGroup);
-    m_missileList->setMinimumHeight(460);
-    auto* missileAddBtn = new QPushButton(QStringLiteral("添加"), missileGroup);
-    missileAddBtn->setMinimumWidth(72);
-    auto* missileRemoveBtn = new QPushButton(QStringLiteral("移除"), missileGroup);
-    missileRemoveBtn->setMinimumWidth(72);
-    auto* missileBtnCol = new QVBoxLayout;
-    missileBtnCol->addWidget(missileAddBtn);
-    missileBtnCol->addWidget(missileRemoveBtn);
-    missileBtnCol->addStretch();
-    missileListRow->addWidget(m_missileList, 1);
-    missileListRow->addLayout(missileBtnCol);
-    missileOuterLayout->addLayout(missileListRow);
+    missileGroup->setMinimumHeight(620);
 
     auto* missileParamLayout = new QGridLayout;
+    missileParamLayout->setVerticalSpacing(6);
     m_missileLon = createSpinBox(-180.0, 180.0, 103.80, 4, 0.01, missileGroup);
     m_missileLat = createSpinBox(-90.0, 90.0, 32.10, 4, 0.01, missileGroup);
     m_missileAlt = createSpinBox(0.0, 120000.0, 1800.0, 0, 100.0, missileGroup);
@@ -1036,28 +1038,31 @@ void MainWindow::buildUi() {
     ++r;
     missileParamLayout->addWidget(new QLabel(QStringLiteral("速度(m/s)"), missileGroup), r, 0);
     missileParamLayout->addWidget(m_missileSpeedSpin, r, 1);
+    missileParamLayout->setRowMinimumHeight(0, 28);
+    missileParamLayout->setRowMinimumHeight(1, 28);
+    missileParamLayout->setRowMinimumHeight(2, 28);
     missileOuterLayout->addLayout(missileParamLayout);
+
+    auto* missileBtns = new QHBoxLayout;
+    auto* missileAddBtn = new QPushButton(QStringLiteral("添加"), missileGroup);
+    missileAddBtn->setMinimumWidth(72);
+    auto* missileRemoveBtn = new QPushButton(QStringLiteral("移除"), missileGroup);
+    missileRemoveBtn->setMinimumWidth(72);
+    missileBtns->addWidget(missileAddBtn);
+    missileBtns->addWidget(missileRemoveBtn);
+    missileOuterLayout->addLayout(missileBtns);
+
+    m_missileList = new QListWidget(missileGroup);
+    m_missileList->setMinimumHeight(430);
+    missileOuterLayout->addWidget(m_missileList, 1);
     missileOuterLayout->addWidget(new QLabel(QStringLiteral("提示：双击条目后可直接修改参数并实时同步到地球态势图。"), missileGroup));
 
     auto* targetGroup = new QGroupBox(QStringLiteral("红方目标编组"), entitiesSplitter);
     auto* targetOuterLayout = new QVBoxLayout(targetGroup);
-
-    auto* targetListRow = new QHBoxLayout;
-    m_targetList = new QListWidget(targetGroup);
-    m_targetList->setMinimumHeight(460);
-    auto* targetAddBtn = new QPushButton(QStringLiteral("添加"), targetGroup);
-    targetAddBtn->setMinimumWidth(72);
-    auto* targetRemoveBtn = new QPushButton(QStringLiteral("移除"), targetGroup);
-    targetRemoveBtn->setMinimumWidth(72);
-    auto* targetBtnCol = new QVBoxLayout;
-    targetBtnCol->addWidget(targetAddBtn);
-    targetBtnCol->addWidget(targetRemoveBtn);
-    targetBtnCol->addStretch();
-    targetListRow->addWidget(m_targetList, 1);
-    targetListRow->addLayout(targetBtnCol);
-    targetOuterLayout->addLayout(targetListRow);
+    targetGroup->setMinimumHeight(620);
 
     auto* targetParamLayout = new QGridLayout;
+    targetParamLayout->setVerticalSpacing(6);
     m_targetLon = createSpinBox(-180.0, 180.0, 118.40, 4, 0.01, targetGroup);
     m_targetLat = createSpinBox(-90.0, 90.0, 40.20, 4, 0.01, targetGroup);
     m_targetAlt = createSpinBox(0.0, 120000.0, 2200.0, 0, 100.0, targetGroup);
@@ -1076,16 +1081,36 @@ void MainWindow::buildUi() {
     targetParamLayout->addWidget(m_targetAlt, r, 1);
     targetParamLayout->addWidget(new QLabel(QStringLiteral("优先级(1-10)"), targetGroup), r, 2);
     targetParamLayout->addWidget(m_targetPrioritySpin, r, 3);
+    ++r;
+    targetParamLayout->addWidget(new QLabel(QStringLiteral(""), targetGroup), r, 0, 1, 4);
+    targetParamLayout->setRowMinimumHeight(0, 28);
+    targetParamLayout->setRowMinimumHeight(1, 28);
+    targetParamLayout->setRowMinimumHeight(2, 28);
     targetOuterLayout->addLayout(targetParamLayout);
+
+    auto* targetBtns = new QHBoxLayout;
+    auto* targetAddBtn = new QPushButton(QStringLiteral("添加"), targetGroup);
+    targetAddBtn->setMinimumWidth(72);
+    auto* targetRemoveBtn = new QPushButton(QStringLiteral("移除"), targetGroup);
+    targetRemoveBtn->setMinimumWidth(72);
+    targetBtns->addWidget(targetAddBtn);
+    targetBtns->addWidget(targetRemoveBtn);
+    targetOuterLayout->addLayout(targetBtns);
+
+    m_targetList = new QListWidget(targetGroup);
+    m_targetList->setMinimumHeight(430);
+    targetOuterLayout->addWidget(m_targetList, 1);
     targetOuterLayout->addWidget(new QLabel(QStringLiteral("提示：高价值目标建议优先级设为 8-10。"), targetGroup));
 
     auto* threatGroup = new QGroupBox(QStringLiteral("威胁区配置"), entitiesSplitter);
     auto* threatLayout = new QGridLayout(threatGroup);
+    threatLayout->setVerticalSpacing(6);
+    threatGroup->setMinimumHeight(620);
 
     m_threatLon = createSpinBox(-180.0, 180.0, 111.2000, 4, 0.01, threatGroup);
     m_threatLat = createSpinBox(-90.0, 90.0, 36.6000, 4, 0.01, threatGroup);
-    m_threatRadius = createSpinBox(500.0, 240000.0, 48000.0, 0, 1000.0, threatGroup);
-    m_threatMaxAlt = createSpinBox(100.0, 60000.0, 18000.0, 0, 200.0, threatGroup);
+    m_threatRadius = createSpinBox(5000.0, 600000.0, 72000.0, 0, 2000.0, threatGroup);
+    m_threatMaxAlt = createSpinBox(2000.0, 120000.0, 28000.0, 0, 500.0, threatGroup);
 
     r = 0;
     threatLayout->addWidget(new QLabel(QStringLiteral("中心经度"), threatGroup), r, 0);
@@ -1097,6 +1122,8 @@ void MainWindow::buildUi() {
     threatLayout->addWidget(m_threatRadius, r, 1);
     threatLayout->addWidget(new QLabel(QStringLiteral("高度上限(m)"), threatGroup), r, 2);
     threatLayout->addWidget(m_threatMaxAlt, r, 3);
+    ++r;
+    threatLayout->addWidget(new QLabel(QStringLiteral(""), threatGroup), r, 0, 1, 4);
 
     auto* addThreatButton = new QPushButton(QStringLiteral("添加威胁区"), threatGroup);
     auto* clearThreatButton = new QPushButton(QStringLiteral("清空威胁区"), threatGroup);
@@ -1109,7 +1136,7 @@ void MainWindow::buildUi() {
     ++r;
     threatLayout->addWidget(m_threatList, r, 0, 1, 4);
     ++r;
-    threatLayout->addWidget(new QLabel(QStringLiteral("建议：半径 8-50km、上限 8-20km 可覆盖常见防空拦截包线。"), threatGroup), r, 0, 1, 4);
+    threatLayout->addWidget(new QLabel(QStringLiteral("建议：半径 30-120km、上限 18-35km 更贴近大范围预警/防空覆盖。"), threatGroup), r, 0, 1, 4);
 
     entitiesSplitter->addWidget(missileGroup);
     entitiesSplitter->addWidget(targetGroup);
@@ -1342,10 +1369,13 @@ void MainWindow::refreshMissileList() {
     m_missileList->blockSignals(true);
     m_missileList->clear();
     for (const auto& mc : m_missileConfigs) {
-        m_missileList->addItem(QStringLiteral("%1  %2°E %3°N")
+        m_missileList->addItem(QStringLiteral("%1  %2°E %3°N  H:%4m  %5  V:%6m/s")
                                    .arg(QString::fromStdString(mc.name))
                                    .arg(mc.startLonDeg, 0, 'f', 2)
-                                   .arg(mc.startLatDeg, 0, 'f', 2));
+                                   .arg(mc.startLatDeg, 0, 'f', 2)
+                                   .arg(mc.startAltMeters, 0, 'f', 0)
+                                   .arg(missileTypeName(mc.missileType))
+                                   .arg(mc.speedMps, 0, 'f', 0));
     }
     m_missileList->blockSignals(false);
 
@@ -1367,10 +1397,11 @@ void MainWindow::refreshTargetList() {
 
     m_targetList->clear();
     for (const auto& tc : m_targetConfigs) {
-        m_targetList->addItem(QStringLiteral("%1  %2°E %3°N  P:%4")
+        m_targetList->addItem(QStringLiteral("%1  %2°E %3°N  H:%4m  P:%5")
                                   .arg(QString::fromStdString(tc.name))
                                   .arg(tc.lonDeg, 0, 'f', 2)
                                   .arg(tc.latDeg, 0, 'f', 2)
+                                  .arg(tc.altMeters, 0, 'f', 0)
                                   .arg(tc.priority));
     }
 
@@ -1792,11 +1823,11 @@ void MainWindow::populateDefaultScenario() {
     };
 
     m_threatZones = {
-        {111.20, 36.60, 48000.0, 0.0, 18000.0},
-        {114.80, 37.80, 36000.0, 0.0, 16000.0},
-        {116.10, 39.20, 42000.0, 0.0, 20000.0},
-        {118.20, 35.90, 28000.0, 0.0, 12000.0},
-        {113.40, 34.70, 25000.0, 0.0, 10000.0},
+        {111.20, 36.60, 86000.0, 0.0, 26000.0},
+        {114.80, 37.80, 68000.0, 0.0, 22000.0},
+        {116.10, 39.20, 76000.0, 0.0, 30000.0},
+        {118.20, 35.90, 52000.0, 0.0, 20000.0},
+        {113.40, 34.70, 48000.0, 0.0, 18000.0},
     };
 
     m_nextMissileId = static_cast<int>(m_missileConfigs.size()) + 1;

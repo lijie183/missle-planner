@@ -261,17 +261,13 @@ osgEarth::GeoPoint MissileSim::sampleByDistance(double traveledMeters) const {
         srs = osgEarth::SpatialReference::get("wgs84");
     }
 
-    const double progress = m_state.totalMeters > 1e-6
-                                ? std::clamp(traveledMeters / m_state.totalMeters, 0.0, 1.0)
-                                : 0.0;
     const double baseAlt = lerp(a.z(), b.z(), t);
-    const double alt = baseAlt + climbOffsetForProgress(progress);
 
     return osgEarth::GeoPoint(
         srs,
         lerp(a.x(), b.x(), t),
         lerp(a.y(), b.y(), t),
-        alt,
+        baseAlt,
         osgEarth::ALTMODE_ABSOLUTE);
 }
 

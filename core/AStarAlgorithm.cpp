@@ -390,6 +390,122 @@ double routeLengthMeters(const std::vector<osgEarth::GeoPoint>& route) {
     return total;
 }
 
+bool pointIsSafe(
+    double lonDeg,
+    double latDeg,
+    double altMeters,
+    const mission::MissionRequest& request,
+    const mission::AStarAlgorithm::Options& options) {
+    if (altMeters < terrainHeightMeters(lonDeg, latDeg) + options.safetyClearanceMeters) {
+        return false;
+    }
+
+    for (const auto& threat : request.threats) {
+        if (inThreatZone(lonDeg, latDeg, altMeters, threat, 0.0)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool segmentIsSafe(
+    const osgEarth::GeoPoint& a,
+    const osgEarth::GeoPoint& b,
+    const mission::MissionRequest& request,
+    const mission::AStarAlgorithm::Options& options) {
+    constexpr int kSamples = 8;
+    for (int i = 0; i <= kSamples; ++i) {
+        const double t = static_cast<double>(i) / static_cast<double>(kSamples);
+        const double lon = lerp(a.x(), b.x(), t);
+        const double lat = lerp(a.y(), b.y(), t);
+        const double alt = lerp(a.z(), b.z(), t);
+        if (!pointIsSafe(lon, lat, alt, request, options)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::vector<osgEarth::GeoPoint> simplifyRoute(
+    const std::vector<osgEarth::GeoPoint>& route,
+    const mission::MissionRequest& request,
+    const mission::AStarAlgorithm::Options& options) {
+    if (route.size() < 3) {
+        return route;
+    }
+
+    std::vector<osgEarth::GeoPoint> simplified;
+    simplified.reserve(route.size());
+    simplified.push_back(route.front());
+
+    for (std::size_t i = 1; i + 1 < route.size(); ++i) {
+        const auto& prev = simplified.back();
+        const auto& current = route[i];
+        const auto& next = route[i + 1];
+
+        const double direct = approx3dDistanceMeters(
+            prev.x(), prev.y(), prev.z(),
+            next.x(), next.y(), next.z());
+        const double via = approx3dDistanceMeters(
+                               prev.x(), prev.y(), prev.z(),
+                               current.x(), current.y(), current.z()) +
+                           approx3dDistanceMeters(
+                               current.x(), current.y(), current.z(),
+                               next.x(), next.y(), next.z());
+
+        const bool almostStraight = (via - direct) < 3200.0;
+        if (almostStraight && segmentIsSafe(prev, next, request, options)) {
+            continue;
+        }
+
+        simplified.push_back(current);
+    }
+
+    simplified.push_back(route.back());
+    return simplified;
+}
+
+std::vector<osgEarth::GeoPoint> smoothRoute(
+    std::vector<osgEarth::GeoPoint> route,
+    const mission::MissionRequest& request,
+    const mission::AStarAlgorithm::Options& options) {
+    if (route.size() < 4) {
+        return route;
+    }
+
+    const auto* srs = route.front().getSRS();
+    for (int pass = 0; pass < 3; ++pass) {
+        std::vector<osgEarth::GeoPoint> nextRoute = route;
+        for (std::size_t i = 1; i + 1 < route.size(); ++i) {
+            const auto& a = route[i - 1];
+            const auto& b = route[i];
+            const auto& c = route[i + 1];
+
+            const double lon = a.x() * 0.25 + b.x() * 0.5 + c.x() * 0.25;
+            const double lat = a.y() * 0.25 + b.y() * 0.5 + c.y() * 0.25;
+            const double altRaw = a.z() * 0.25 + b.z() * 0.5 + c.z() * 0.25;
+            const double minAlt = terrainHeightMeters(lon, lat) + options.safetyClearanceMeters;
+            const double alt = std::max(altRaw, minAlt);
+
+            osgEarth::GeoPoint candidate(
+                srs,
+                lon,
+                lat,
+                alt,
+                osgEarth::ALTMODE_ABSOLUTE);
+
+            if (segmentIsSafe(route[i - 1], candidate, request, options) &&
+                segmentIsSafe(candidate, route[i + 1], request, options)) {
+                nextRoute[i] = candidate;
+            }
+        }
+        route.swap(nextRoute);
+    }
+
+    return simplifyRoute(route, request, options);
+}
+
 }  // namespace
 
 namespace mission {
@@ -625,6 +741,20 @@ RoutePlanResult AStarAlgorithm::plan(const MissionRequest& request) const {
             std::max(request.start.z(), terrainHeightMeters(request.start.x(), request.start.y()) + m_options.safetyClearanceMeters),
             osgEarth::ALTMODE_ABSOLUTE);
 
+        result.route.back() = osgEarth::GeoPoint(
+            wgs84,
+            request.goal.x(),
+            request.goal.y(),
+            std::max(request.goal.z(), terrainHeightMeters(request.goal.x(), request.goal.y()) + m_options.safetyClearanceMeters),
+            osgEarth::ALTMODE_ABSOLUTE);
+
+        result.route = smoothRoute(result.route, request, m_options);
+        result.route.front() = osgEarth::GeoPoint(
+            wgs84,
+            request.start.x(),
+            request.start.y(),
+            std::max(request.start.z(), terrainHeightMeters(request.start.x(), request.start.y()) + m_options.safetyClearanceMeters),
+            osgEarth::ALTMODE_ABSOLUTE);
         result.route.back() = osgEarth::GeoPoint(
             wgs84,
             request.goal.x(),
