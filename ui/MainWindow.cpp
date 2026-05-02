@@ -240,6 +240,13 @@ MainWindow::MainWindow(QWidget* parent)
     statusBar()->showMessage(QStringLiteral("系统就绪：请配置导弹与目标参数后执行多导弹规划。"));
 }
 
+MainWindow::~MainWindow() {
+    m_planRunning = false;
+    if (m_planThread.joinable()) {
+        m_planThread.join();
+    }
+}
+
 void MainWindow::onAddMissile() {
     mission::MissileConfig cfg;
     cfg.id = QString("M%1").arg(m_nextMissileId).toStdString();
@@ -359,12 +366,22 @@ void MainWindow::onPlanRoute() {
         return;
     }
 
+    if (m_planRunning.load()) {
+        statusBar()->showMessage(QStringLiteral("规划正在执行中，请等待完成..."), 3000);
+        return;
+    }
+
     if (m_earthWidget != nullptr) {
         m_earthWidget->resetMissionGraphics();
         m_earthWidget->setThreatZones(m_threatZones);
     }
 
-    mission::MultiMissilePlanner planner;
+    if (m_planButton != nullptr) {
+        m_planButton->setEnabled(false);
+        m_planButton->setText(QStringLiteral("规划计算中..."));
+    }
+    statusBar()->showMessage(QStringLiteral("正在后台执行多导弹协同规划，UI可继续交互..."));
+
     mission::MultiMissilePlanner::Options options;
     options.astarOptions.gridStepDeg = m_gridStepSpin->value();
     options.astarOptions.safetyClearanceMeters = m_clearanceSpin->value();
@@ -385,7 +402,6 @@ void MainWindow::onPlanRoute() {
     } else {
         options.method = allocationMethodFromComboIndex(allocIndex);
     }
-    m_lastPlanningMethod = options.method;
 
     const QString profile = m_profileCombo->currentText();
     if (profile.contains(QStringLiteral("低空"))) {
@@ -404,69 +420,121 @@ void MainWindow::onPlanRoute() {
         options.astarOptions.threatPenaltyScale = 0.0;
     }
 
-    const std::array<mission::RouteAlgorithm, 4> routeAlgorithms = {
-        mission::RouteAlgorithm::AStar,
-        mission::RouteAlgorithm::Dijkstra,
-        mission::RouteAlgorithm::RRT,
-        mission::RouteAlgorithm::HybridAStarPotential};
+    const auto missilesCopy = m_missileConfigs;
+    const auto targetsCopy = m_targetConfigs;
+    const auto threatsCopy = m_threatZones;
+    const auto planningMethod = options.method;
 
-    mission::MultiMissilePlanner::Options quickOptions = options;
-    quickOptions.astarOptions.gridStepDeg = std::min(0.12, options.astarOptions.gridStepDeg * 1.8);
-    quickOptions.astarOptions.altitudeStepMeters = std::max(200.0, options.astarOptions.altitudeStepMeters * 1.35);
-    quickOptions.astarOptions.maxAltitudeLevels = 16;
-    quickOptions.astarOptions.maxIterations = std::max(90000, options.astarOptions.maxIterations / 2);
-
-    m_algorithmComparisons.clear();
-    m_algorithmComparisons.reserve(routeAlgorithms.size());
-
-    for (const auto routeAlgorithm : routeAlgorithms) {
-        quickOptions.routeAlgorithm = routeAlgorithm;
-
-        AlgorithmCompareItem item;
-        item.routeAlgorithm = routeAlgorithm;
-        item.name = routeAlgorithmDisplayName(routeAlgorithm).toStdString();
-        item.result = planner.plan(m_missileConfigs, m_targetConfigs, m_threatZones, quickOptions);
-        item.score = computeResultScore(item.result);
-        m_algorithmComparisons.push_back(item);
+    if (m_planThread.joinable()) {
+        m_planThread.join();
     }
 
-    const int routeIndex = m_routeAlgoCombo != nullptr ? m_routeAlgoCombo->currentIndex() : 0;
-    const bool autoSelectBestRoute = (routeIndex == 0);
-    mission::RouteAlgorithm selectedRouteAlgorithm = routeAlgorithmFromComboIndex(routeIndex);
+    m_planRunning.store(true);
 
-    int selectedIndex = -1;
-    if (autoSelectBestRoute) {
-        double bestScore = -std::numeric_limits<double>::infinity();
-        for (int i = 0; i < static_cast<int>(m_algorithmComparisons.size()); ++i) {
-            if (m_algorithmComparisons[i].score > bestScore) {
-                bestScore = m_algorithmComparisons[i].score;
-                selectedIndex = i;
-            }
-        }
-    } else {
-        for (int i = 0; i < static_cast<int>(m_algorithmComparisons.size()); ++i) {
-            if (m_algorithmComparisons[i].routeAlgorithm == selectedRouteAlgorithm) {
-                selectedIndex = i;
+    m_planThread = std::thread([this, missilesCopy, targetsCopy, threatsCopy, options, planningMethod]() mutable {
+        const std::array<mission::RouteAlgorithm, 4> routeAlgorithms = {
+            mission::RouteAlgorithm::AStar,
+            mission::RouteAlgorithm::Dijkstra,
+            mission::RouteAlgorithm::RRT,
+            mission::RouteAlgorithm::HybridAStarPotential};
+
+        mission::MultiMissilePlanner planner;
+
+        mission::MultiMissilePlanner::Options quickOptions = options;
+        quickOptions.astarOptions.gridStepDeg = std::min(0.12, options.astarOptions.gridStepDeg * 1.8);
+        quickOptions.astarOptions.altitudeStepMeters = std::max(200.0, options.astarOptions.altitudeStepMeters * 1.35);
+        quickOptions.astarOptions.maxAltitudeLevels = 16;
+        quickOptions.astarOptions.maxIterations = std::max(90000, options.astarOptions.maxIterations / 2);
+
+        std::vector<AlgorithmCompareItem> algorithmComparisons;
+        algorithmComparisons.reserve(routeAlgorithms.size());
+
+        for (const auto routeAlgorithm : routeAlgorithms) {
+            if (!m_planRunning.load()) {
                 break;
             }
+            quickOptions.routeAlgorithm = routeAlgorithm;
+
+            AlgorithmCompareItem item;
+            item.routeAlgorithm = routeAlgorithm;
+            item.name = routeAlgorithmDisplayName(routeAlgorithm).toStdString();
+            item.result = planner.plan(missilesCopy, targetsCopy, threatsCopy, quickOptions);
+            item.score = computeResultScore(item.result);
+            algorithmComparisons.push_back(item);
         }
+
+        const int routeIndex = 0;
+        const bool autoSelectBestRoute = true;
+        mission::RouteAlgorithm selectedRouteAlgorithm = mission::RouteAlgorithm::AStar;
+
+        int selectedIndex = -1;
+        if (autoSelectBestRoute) {
+            double bestScore = -std::numeric_limits<double>::infinity();
+            for (int i = 0; i < static_cast<int>(algorithmComparisons.size()); ++i) {
+                if (algorithmComparisons[i].score > bestScore) {
+                    bestScore = algorithmComparisons[i].score;
+                    selectedIndex = i;
+                }
+            }
+        } else {
+            for (int i = 0; i < static_cast<int>(algorithmComparisons.size()); ++i) {
+                if (algorithmComparisons[i].routeAlgorithm == selectedRouteAlgorithm) {
+                    selectedIndex = i;
+                    break;
+                }
+            }
+        }
+
+        if (selectedIndex < 0) {
+            selectedIndex = 0;
+        }
+
+        for (int i = 0; i < static_cast<int>(algorithmComparisons.size()); ++i) {
+            algorithmComparisons[i].selected = (i == selectedIndex);
+        }
+
+        if (m_planRunning.load()) {
+            options.routeAlgorithm = algorithmComparisons[selectedIndex].routeAlgorithm;
+            algorithmComparisons[selectedIndex].result =
+                planner.plan(missilesCopy, targetsCopy, threatsCopy, options);
+            algorithmComparisons[selectedIndex].score = computeResultScore(algorithmComparisons[selectedIndex].result);
+        }
+
+        PlanWorkResult result;
+        result.missileConfigs = missilesCopy;
+        result.targetConfigs = targetsCopy;
+        result.multiResult = algorithmComparisons[selectedIndex].result;
+        result.algorithmComparisons = algorithmComparisons;
+        result.planningMethod = planningMethod;
+        result.routeAlgorithm = algorithmComparisons[selectedIndex].routeAlgorithm;
+
+        {
+            std::lock_guard<std::mutex> lock(m_planResultMutex);
+            m_planResult = std::move(result);
+        }
+
+        m_planRunning.store(false);
+
+        QMetaObject::invokeMethod(this, [this]() { onPlanRouteFinished(); }, Qt::QueuedConnection);
+    });
+}
+
+void MainWindow::onPlanRouteFinished() {
+    if (m_planButton != nullptr) {
+        m_planButton->setEnabled(true);
+        m_planButton->setText(QStringLiteral("执行多导弹协同规划"));
     }
 
-    if (selectedIndex < 0) {
-        selectedIndex = 0;
+    PlanWorkResult result;
+    {
+        std::lock_guard<std::mutex> lock(m_planResultMutex);
+        result = std::move(m_planResult);
     }
 
-    for (int i = 0; i < static_cast<int>(m_algorithmComparisons.size()); ++i) {
-        m_algorithmComparisons[i].selected = (i == selectedIndex);
-    }
-
-    options.routeAlgorithm = m_algorithmComparisons[selectedIndex].routeAlgorithm;
-    m_algorithmComparisons[selectedIndex].result =
-        planner.plan(m_missileConfigs, m_targetConfigs, m_threatZones, options);
-    m_algorithmComparisons[selectedIndex].score = computeResultScore(m_algorithmComparisons[selectedIndex].result);
-
-    m_lastRouteAlgorithm = m_algorithmComparisons[selectedIndex].routeAlgorithm;
-    m_lastMultiResult = m_algorithmComparisons[selectedIndex].result;
+    m_lastPlanningMethod = result.planningMethod;
+    m_lastRouteAlgorithm = result.routeAlgorithm;
+    m_lastMultiResult = result.multiResult;
+    m_algorithmComparisons = result.algorithmComparisons;
     updateAlgorithmCompareTable();
 
     m_missileRuntimes.clear();
@@ -990,7 +1058,7 @@ void MainWindow::buildUi() {
 
     auto* actionGroup = new QGroupBox(QStringLiteral("规划与推演"), commandPanel);
     auto* actionLayout = new QVBoxLayout(actionGroup);
-    auto* planButton = new QPushButton(QStringLiteral("执行多导弹协同规划"), actionGroup);
+    m_planButton = new QPushButton(QStringLiteral("执行多导弹协同规划"), actionGroup);
     auto* simButton = new QPushButton(QStringLiteral("开始多弹三维推演"), actionGroup);
 
     auto* speedLayout = new QFormLayout;
@@ -999,7 +1067,7 @@ void MainWindow::buildUi() {
     m_followMissileCheck->setChecked(false);
     speedLayout->addRow(QStringLiteral("推演倍率(x)"), m_timeScaleSpin);
 
-    actionLayout->addWidget(planButton);
+    actionLayout->addWidget(m_planButton);
     actionLayout->addWidget(simButton);
     actionLayout->addLayout(speedLayout);
     actionLayout->addWidget(m_followMissileCheck);
@@ -1329,7 +1397,7 @@ void MainWindow::buildUi() {
 
     connect(addThreatButton, &QPushButton::clicked, this, &MainWindow::onAddThreat);
     connect(clearThreatButton, &QPushButton::clicked, this, &MainWindow::onClearThreats);
-    connect(planButton, &QPushButton::clicked, this, &MainWindow::onPlanRoute);
+    connect(m_planButton, &QPushButton::clicked, this, &MainWindow::onPlanRoute);
     connect(simButton, &QPushButton::clicked, this, &MainWindow::onStartSimulation);
     connect(failButton, &QPushButton::clicked, this, &MainWindow::onSimulateFailure);
     connect(replanButton, &QPushButton::clicked, this, &MainWindow::onDynamicReplan);

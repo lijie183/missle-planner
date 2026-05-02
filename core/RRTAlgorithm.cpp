@@ -88,7 +88,7 @@ bool segmentSafe(
     const Node& b,
     const mission::MissionRequest& request,
     const mission::RRTAlgorithm::Options& options) {
-    constexpr int kSamples = 10;
+    constexpr int kSamples = 16;
     for (int i = 0; i <= kSamples; ++i) {
         const double t = static_cast<double>(i) / static_cast<double>(kSamples);
         const double lon = a.lonDeg + (b.lonDeg - a.lonDeg) * t;
@@ -325,6 +325,37 @@ RoutePlanResult RRTAlgorithm::plan(const MissionRequest& request) const {
         result.route = shortcutSmooth(result.route, request, m_options);
         result.route.front() = osgEarth::GeoPoint(wgs84, request.start.x(), request.start.y(), startAlt, osgEarth::ALTMODE_ABSOLUTE);
         result.route.back() = osgEarth::GeoPoint(wgs84, request.goal.x(), request.goal.y(), goalAlt, osgEarth::ALTMODE_ABSOLUTE);
+
+        for (int fixPass = 0; fixPass < 4; ++fixPass) {
+            bool anyUnsafe = false;
+            for (std::size_t i = 1; i + 1 < result.route.size(); ++i) {
+                const auto& p = result.route[i];
+                if (pointSafe(p.x(), p.y(), p.z(), request, m_options)) {
+                    continue;
+                }
+                anyUnsafe = true;
+                bool fixed = false;
+                for (double altUp = p.z() + 500.0; altUp <= 95000.0; altUp += 500.0) {
+                    if (pointSafe(p.x(), p.y(), altUp, request, m_options)) {
+                        result.route[i] = osgEarth::GeoPoint(wgs84, p.x(), p.y(), altUp, osgEarth::ALTMODE_ABSOLUTE);
+                        fixed = true;
+                        break;
+                    }
+                }
+                if (!fixed) {
+                    for (double altDown = p.z() - 500.0; altDown >= 0.0; altDown -= 500.0) {
+                        if (pointSafe(p.x(), p.y(), altDown, request, m_options)) {
+                            result.route[i] = osgEarth::GeoPoint(wgs84, p.x(), p.y(), altDown, osgEarth::ALTMODE_ABSOLUTE);
+                            fixed = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!anyUnsafe) {
+                break;
+            }
+        }
     }
 
     result.metrics.success = true;

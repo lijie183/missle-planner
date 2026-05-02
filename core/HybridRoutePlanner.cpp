@@ -26,6 +26,44 @@ double horizontalDistanceMeters(double lonA, double latA, double lonB, double la
     return std::sqrt(dx * dx + dy * dy);
 }
 
+double syntheticTerrainHeight(double lonDeg, double latDeg) {
+    const double latWave = std::sin(toRadians(latDeg * 4.0));
+    const double lonWave = std::cos(toRadians(lonDeg * 3.0));
+    const double detailWave = std::sin(toRadians((lonDeg + latDeg) * 8.0));
+    return 260.0 + 180.0 * latWave + 120.0 * lonWave + 60.0 * detailWave;
+}
+
+bool pointInThreat(
+    double lonDeg,
+    double latDeg,
+    double altMeters,
+    const mission::ThreatZone& threat,
+    double marginMeters = 0.0) {
+    const double h = horizontalDistanceMeters(lonDeg, latDeg, threat.longitudeDeg, threat.latitudeDeg);
+    if (h > threat.radiusMeters + marginMeters) {
+        return false;
+    }
+    return altMeters >= (threat.minAltitudeMeters - marginMeters) &&
+           altMeters <= (threat.maxAltitudeMeters + marginMeters);
+}
+
+bool pointIsSafe(
+    double lonDeg,
+    double latDeg,
+    double altMeters,
+    const mission::MissionRequest& request,
+    double clearanceMeters) {
+    if (altMeters < syntheticTerrainHeight(lonDeg, latDeg) + clearanceMeters) {
+        return false;
+    }
+    for (const auto& threat : request.threats) {
+        if (pointInThreat(lonDeg, latDeg, altMeters, threat, 0.0)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 double routeLengthMeters(const std::vector<osgEarth::GeoPoint>& route) {
     if (route.size() < 2) {
         return 0.0;
@@ -69,7 +107,8 @@ RoutePlanResult HybridRoutePlanner::plan(const MissionRequest& request) const {
         return base;
     }
 
-    for (int pass = 0; pass < std::max(1, m_options.optimizePasses); ++pass) {
+    const int totalPasses = std::max(4, m_options.optimizePasses * 2);
+    for (int pass = 0; pass < totalPasses; ++pass) {
         std::vector<osgEarth::GeoPoint> next = route;
         for (std::size_t i = 1; i + 1 < route.size(); ++i) {
             const auto& curr = route[i];
@@ -79,7 +118,7 @@ RoutePlanResult HybridRoutePlanner::plan(const MissionRequest& request) const {
 
             for (const auto& threat : request.threats) {
                 const double h = horizontalDistanceMeters(curr.x(), curr.y(), threat.longitudeDeg, threat.latitudeDeg);
-                const double influence = threat.radiusMeters * 1.7;
+                const double influence = threat.radiusMeters * 2.2;
                 if (h > influence) {
                     continue;
                 }
@@ -87,16 +126,23 @@ RoutePlanResult HybridRoutePlanner::plan(const MissionRequest& request) const {
                 const double dirLon = curr.x() - threat.longitudeDeg;
                 const double dirLat = curr.y() - threat.latitudeDeg;
                 const double len = std::max(1e-6, std::sqrt(dirLon * dirLon + dirLat * dirLat));
-                const double w = (influence - h) / influence;
+                double w = (influence - h) / influence;
+                if (h <= threat.radiusMeters) {
+                    w = 1.0 + (threat.radiusMeters - h) / std::max(1.0, threat.radiusMeters) * 3.0;
+                }
                 pushLon += (dirLon / len) * w;
                 pushLat += (dirLat / len) * w;
 
                 if (curr.z() <= threat.maxAltitudeMeters + 800.0) {
-                    pushAlt += (threat.maxAltitudeMeters + 900.0 - curr.z()) * 0.06;
+                    double altPushW = (threat.maxAltitudeMeters + 900.0 - curr.z()) * 0.06;
+                    if (h <= threat.radiusMeters) {
+                        altPushW *= 3.0;
+                    }
+                    pushAlt += altPushW;
                 }
             }
 
-            const double localStep = m_options.threatPushStrength * (1.0 + static_cast<double>(pass) * 0.35);
+            const double localStep = m_options.threatPushStrength * (1.0 + static_cast<double>(pass) * 0.5);
             const double lonDelta = pushLon * localStep * 0.010;
             const double latDelta = pushLat * localStep * 0.010;
             const double altDelta = pushAlt * localStep;
@@ -116,6 +162,33 @@ RoutePlanResult HybridRoutePlanner::plan(const MissionRequest& request) const {
 
     route.front() = base.route.front();
     route.back() = base.route.back();
+
+    const double clearance = m_options.astarOptions.safetyClearanceMeters;
+    for (int fixPass = 0; fixPass < 6; ++fixPass) {
+        bool anyUnsafe = false;
+        for (std::size_t i = 1; i + 1 < route.size(); ++i) {
+            const auto& p = route[i];
+            if (pointIsSafe(p.x(), p.y(), p.z(), request, clearance)) {
+                continue;
+            }
+            anyUnsafe = true;
+            double bestAlt = p.z();
+            bool fixed = false;
+            for (double altUp = p.z() + 500.0; altUp <= 95000.0; altUp += 500.0) {
+                if (pointIsSafe(p.x(), p.y(), altUp, request, clearance)) {
+                    bestAlt = altUp;
+                    fixed = true;
+                    break;
+                }
+            }
+            if (fixed) {
+                route[i] = osgEarth::GeoPoint(wgs84, p.x(), p.y(), bestAlt, osgEarth::ALTMODE_ABSOLUTE);
+            }
+        }
+        if (!anyUnsafe) {
+            break;
+        }
+    }
 
     const double oldLength = base.metrics.pathLengthMeters;
     const double newLength = routeLengthMeters(route);

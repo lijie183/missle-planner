@@ -56,6 +56,7 @@ private:
     void detectAndResolveConflicts(
         MultiMissionResult& result,
         const std::vector<MissileConfig>& missiles,
+        const std::vector<ThreatZone>& threats,
         const Options& options) const;
 
     void applyTimeSynchronization(

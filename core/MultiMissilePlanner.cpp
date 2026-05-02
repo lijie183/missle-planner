@@ -32,6 +32,16 @@ double approxDistanceMeters(
     return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
 
+double approxHorizontalDistanceMeters(
+    double lonDegA, double latDegA,
+    double lonDegB, double latDegB) {
+    const double meanLatRad = toRadians((latDegA + latDegB) * 0.5);
+    const double metersPerLonDegree = kMetersPerLatDegree * std::max(0.1, std::cos(meanLatRad));
+    const double dx = (lonDegB - lonDegA) * metersPerLonDegree;
+    const double dy = (latDegB - latDegA) * kMetersPerLatDegree;
+    return std::sqrt(dx * dx + dy * dy);
+}
+
 double estimateFlightTimeSeconds(const std::vector<osgEarth::GeoPoint>& route, double speedMetersPerSecond) {
     if (route.size() < 2) {
         return 0.0;
@@ -324,7 +334,7 @@ MultiMissionResult MultiMissilePlanner::plan(
     const int hitTargets = std::min(result.successCount, totalTargets);
     result.successRate = totalTargets > 0 ? static_cast<double>(hitTargets) / totalTargets : 0.0;
 
-    detectAndResolveConflicts(result, missiles, options);
+    detectAndResolveConflicts(result, missiles, threats, options);
     applyTimeSynchronization(result, missiles, options);
 
     result.message = "多导弹规划完成。";
@@ -401,6 +411,7 @@ MultiMissionResult MultiMissilePlanner::replan(
 void MultiMissilePlanner::detectAndResolveConflicts(
     MultiMissionResult& result,
     const std::vector<MissileConfig>& missiles,
+    const std::vector<ThreatZone>& threats,
     const Options& options) const {
     result.conflicts.clear();
     result.detectedConflictCount = 0;
@@ -455,7 +466,40 @@ void MultiMissilePlanner::detectAndResolveConflicts(
                 const double offsetMeters = threshold - minDist + 900.0;
                 for (std::size_t k = 1; k + 1 < b.planResult.route.size(); ++k) {
                     auto p = b.planResult.route[k];
-                    p.z() = p.z() + offsetMeters;
+                    double newAlt = p.z() + offsetMeters;
+                    bool inAnyThreat = false;
+                    for (const auto& threat : threats) {
+                        const double h = approxHorizontalDistanceMeters(p.x(), p.y(), threat.longitudeDeg, threat.latitudeDeg);
+                        if (h <= threat.radiusMeters &&
+                            newAlt >= threat.minAltitudeMeters &&
+                            newAlt <= threat.maxAltitudeMeters) {
+                            inAnyThreat = true;
+                            break;
+                        }
+                    }
+                    if (inAnyThreat) {
+                        newAlt = 0.0;
+                        for (double altTry = p.z() + offsetMeters; altTry <= 95000.0; altTry += 1000.0) {
+                            bool safe = true;
+                            for (const auto& threat : threats) {
+                                const double h2 = approxHorizontalDistanceMeters(p.x(), p.y(), threat.longitudeDeg, threat.latitudeDeg);
+                                if (h2 <= threat.radiusMeters &&
+                                    altTry >= threat.minAltitudeMeters &&
+                                    altTry <= threat.maxAltitudeMeters) {
+                                    safe = false;
+                                    break;
+                                }
+                            }
+                            if (safe) {
+                                newAlt = altTry;
+                                break;
+                            }
+                        }
+                        if (newAlt <= 0.0) {
+                            newAlt = p.z() + offsetMeters;
+                        }
+                    }
+                    p.z() = newAlt;
                     b.planResult.route[k] = p;
                 }
                 b.conflictResolved = true;

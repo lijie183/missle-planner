@@ -292,8 +292,8 @@ double threatProximityPenalty(
             threat.longitudeDeg,
             threat.latitudeDeg);
 
-        const double influenceRadius = threat.radiusMeters * 1.6;
-        const bool altitudeRelevant = altMeters <= (threat.maxAltitudeMeters + 1000.0);
+        const double influenceRadius = threat.radiusMeters * 2.0;
+        const bool altitudeRelevant = altMeters <= (threat.maxAltitudeMeters + 1500.0);
         if (!altitudeRelevant || horizontal >= influenceRadius) {
             continue;
         }
@@ -414,7 +414,7 @@ bool segmentIsSafe(
     const osgEarth::GeoPoint& b,
     const mission::MissionRequest& request,
     const mission::AStarAlgorithm::Options& options) {
-    constexpr int kSamples = 8;
+    constexpr int kSamples = 16;
     for (int i = 0; i <= kSamples; ++i) {
         const double t = static_cast<double>(i) / static_cast<double>(kSamples);
         const double lon = lerp(a.x(), b.x(), t);
@@ -636,6 +636,15 @@ RoutePlanResult AStarAlgorithm::plan(const MissionRequest& request) const {
             const double nextLat = keyToLatDeg(next, bounds);
             const double nextAlt = keyToAltMeters(next, bounds);
 
+            const bool isDiagonal = (offset.x != 0 && offset.y != 0) || (offset.z != 0 && (offset.x != 0 || offset.y != 0));
+            if (isDiagonal) {
+                osgEarth::GeoPoint fromPt(wgs84, currentLon, currentLat, currentAlt, osgEarth::ALTMODE_ABSOLUTE);
+                osgEarth::GeoPoint toPt(wgs84, nextLon, nextLat, nextAlt, osgEarth::ALTMODE_ABSOLUTE);
+                if (!segmentIsSafe(fromPt, toPt, request, m_options)) {
+                    continue;
+                }
+            }
+
             const double missionDistanceMeters = approxHorizontalDistanceMeters(
                 request.start.x(), request.start.y(), request.goal.x(), request.goal.y());
             const double progress = routeProgressByProjection(
@@ -749,6 +758,40 @@ RoutePlanResult AStarAlgorithm::plan(const MissionRequest& request) const {
             osgEarth::ALTMODE_ABSOLUTE);
 
         result.route = smoothRoute(result.route, request, m_options);
+
+        for (int fixPass = 0; fixPass < 4; ++fixPass) {
+            bool anyUnsafe = false;
+            for (std::size_t i = 1; i + 1 < result.route.size(); ++i) {
+                const auto& p = result.route[i];
+                if (pointIsSafe(p.x(), p.y(), p.z(), request, m_options)) {
+                    continue;
+                }
+                anyUnsafe = true;
+                bool fixed = false;
+                for (double altUp = p.z() + 500.0; altUp <= 95000.0; altUp += 500.0) {
+                    if (pointIsSafe(p.x(), p.y(), altUp, request, m_options)) {
+                        result.route[i] = osgEarth::GeoPoint(
+                            wgs84, p.x(), p.y(), altUp, osgEarth::ALTMODE_ABSOLUTE);
+                        fixed = true;
+                        break;
+                    }
+                }
+                if (!fixed) {
+                    for (double altDown = p.z() - 500.0; altDown >= 0.0; altDown -= 500.0) {
+                        if (pointIsSafe(p.x(), p.y(), altDown, request, m_options)) {
+                            result.route[i] = osgEarth::GeoPoint(
+                                wgs84, p.x(), p.y(), altDown, osgEarth::ALTMODE_ABSOLUTE);
+                            fixed = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!anyUnsafe) {
+                break;
+            }
+        }
+
         result.route.front() = osgEarth::GeoPoint(
             wgs84,
             request.start.x(),

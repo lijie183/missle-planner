@@ -4,9 +4,12 @@
 #include <QElapsedTimer>
 #include <QTimer>
 
+#include <atomic>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <osgEarth/GeoData>
@@ -41,12 +44,29 @@ struct MissileRuntime {
     int assignedTargetIndex = -1;
 };
 
+struct AlgorithmCompareItem {
+    std::string name;
+    mission::RouteAlgorithm routeAlgorithm = mission::RouteAlgorithm::AStar;
+    mission::MultiMissionResult result;
+    double score = 0.0;
+    bool selected = false;
+};
+
+struct PlanWorkResult {
+    std::vector<mission::MissileConfig> missileConfigs;
+    std::vector<mission::TargetConfig> targetConfigs;
+    mission::MultiMissionResult multiResult;
+    std::vector<AlgorithmCompareItem> algorithmComparisons;
+    mission::AllocationMethod planningMethod = mission::AllocationMethod::Hungarian;
+    mission::RouteAlgorithm routeAlgorithm = mission::RouteAlgorithm::AStar;
+};
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
     explicit MainWindow(QWidget* parent = nullptr);
-    ~MainWindow() override = default;
+    ~MainWindow() override;
 
 private slots:
     void onAddMissile();
@@ -62,15 +82,9 @@ private slots:
     void onSimulationTick();
     void onSimulateFailure();
     void onDynamicReplan();
+    void onPlanRouteFinished();
 
 private:
-    struct AlgorithmCompareItem {
-        std::string name;
-        mission::RouteAlgorithm routeAlgorithm = mission::RouteAlgorithm::AStar;
-        mission::MultiMissionResult result;
-        double score = 0.0;
-        bool selected = false;
-    };
 
     void buildUi();
     osgEarth::GeoPoint makeGeoPoint(
@@ -167,6 +181,12 @@ private:
     QTimer m_simulationTimer;
     QElapsedTimer m_tickClock;
     qint64 m_lastTickMs = 0;
+
+    QPushButton* m_planButton = nullptr;
+    std::thread m_planThread;
+    std::atomic<bool> m_planRunning{false};
+    PlanWorkResult m_planResult;
+    std::mutex m_planResultMutex;
 
     std::vector<mission::MissileConfig> m_missileConfigs;
     std::vector<mission::TargetConfig> m_targetConfigs;
