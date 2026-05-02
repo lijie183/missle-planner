@@ -66,7 +66,7 @@ private slots:
 private:
     struct AlgorithmCompareItem {
         std::string name;
-        mission::AllocationMethod method = mission::AllocationMethod::Hungarian;
+        mission::RouteAlgorithm routeAlgorithm = mission::RouteAlgorithm::AStar;
         mission::MultiMissionResult result;
         double score = 0.0;
         bool selected = false;
@@ -126,6 +126,7 @@ private:
     QDoubleSpinBox* m_threatMaxAlt = nullptr;
 
     QComboBox* m_allocationCombo = nullptr;
+    QComboBox* m_routeAlgoCombo = nullptr;
     QComboBox* m_profileCombo = nullptr;
     QDoubleSpinBox* m_clearanceSpin = nullptr;
     QDoubleSpinBox* m_gridStepSpin = nullptr;
@@ -159,6 +160,8 @@ private:
     QLabel* m_failureCountValue = nullptr;
     QLabel* m_totalTargetsValue = nullptr;
     QLabel* m_bestAlgoValue = nullptr;
+    QLabel* m_conflictCountValue = nullptr;
+    QLabel* m_syncErrorValue = nullptr;
     QPushButton* m_exportHtmlButton = nullptr;
 
     QTimer m_simulationTimer;
@@ -172,6 +175,7 @@ private:
     mission::MultiMissionResult m_lastMultiResult;
     std::vector<AlgorithmCompareItem> m_algorithmComparisons;
     mission::AllocationMethod m_lastPlanningMethod = mission::AllocationMethod::Hungarian;
+    mission::RouteAlgorithm m_lastRouteAlgorithm = mission::RouteAlgorithm::HybridAStarPotential;
 
     int m_selectedMissileIndex = -1;
     int m_selectedTargetIndex = -1;

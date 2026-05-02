@@ -685,7 +685,7 @@ RoutePlanResult AStarAlgorithm::plan(const MissionRequest& request) const {
 
             if (tentativeG + 1e-6 < nextRecord.gCost) {
                 nextRecord.gCost = tentativeG;
-                nextRecord.fCost = tentativeG + heuristic(next);
+                nextRecord.fCost = tentativeG + std::max(0.0, m_options.heuristicWeight) * heuristic(next);
                 nextRecord.parent = currentEntry.key;
                 nextRecord.hasParent = true;
                 nextRecord.closed = false;

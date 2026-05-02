@@ -4,21 +4,20 @@
 
 namespace mission {
 
-class AStarAlgorithm {
+class RRTAlgorithm {
 public:
     struct Options {
-        double gridStepDeg = 0.05;
-        double altitudeStepMeters = 250.0;
+        double stepMeters = 18000.0;
+        double connectDistanceMeters = 22000.0;
+        double goalBias = 0.20;
         double safetyClearanceMeters = 300.0;
         double searchMarginDeg = 0.45;
-        double threatPenaltyScale = 12000.0;
-        double heuristicWeight = 1.0;
-        int maxIterations = 250000;
-        int maxAltitudeLevels = 20;
+        int maxIterations = 5000;
+        int randomSeed = 42;
     };
 
-    AStarAlgorithm();
-    explicit AStarAlgorithm(const Options& options);
+    RRTAlgorithm();
+    explicit RRTAlgorithm(const Options& options);
 
     void setOptions(const Options& options);
     const Options& options() const;

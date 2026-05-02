@@ -52,6 +52,13 @@ enum class AllocationMethod {
     BalancedGreedy
 };
 
+enum class RouteAlgorithm {
+    AStar,
+    Dijkstra,
+    RRT,
+    HybridAStarPotential
+};
+
 struct MissileConfig {
     std::string id;
     std::string name;
@@ -76,6 +83,20 @@ struct Assignment {
     int targetIndex = -1;
     bool planned = false;
     RoutePlanResult planResult;
+    RouteAlgorithm routeAlgorithmUsed = RouteAlgorithm::AStar;
+    double estimatedFlightTimeSeconds = 0.0;
+    double launchDelaySeconds = 0.0;
+    double plannedImpactTimeSeconds = 0.0;
+    bool conflictResolved = false;
+};
+
+struct RouteConflict {
+    int missileA = -1;
+    int missileB = -1;
+    double minDistanceMeters = 0.0;
+    double atTimeSeconds = 0.0;
+    bool resolved = false;
+    std::string resolution;
 };
 
 struct MultiMissionResult {
@@ -84,8 +105,28 @@ struct MultiMissionResult {
     int successCount = 0;
     int failureCount = 0;
     double successRate = 0.0;
+    int detectedConflictCount = 0;
+    int resolvedConflictCount = 0;
+    double syncWindowSeconds = 0.0;
+    double maxImpactTimeErrorSeconds = 0.0;
+    std::vector<RouteConflict> conflicts;
     std::string message;
 };
+
+inline const char* routeAlgorithmName(RouteAlgorithm algo) {
+    switch (algo) {
+        case RouteAlgorithm::AStar:
+            return "A*";
+        case RouteAlgorithm::Dijkstra:
+            return "Dijkstra";
+        case RouteAlgorithm::RRT:
+            return "RRT";
+        case RouteAlgorithm::HybridAStarPotential:
+            return "Hybrid(A*+Potential)";
+        default:
+            return "Unknown";
+    }
+}
 
 inline osg::Vec4 missileColor(int index) {
     static const osg::Vec4 palette[] = {

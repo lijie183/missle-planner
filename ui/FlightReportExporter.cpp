@@ -65,6 +65,11 @@ QJsonObject assignmentToJson(const mission::Assignment& assignment) {
     obj[QStringLiteral("missileIndex")] = assignment.missileIndex;
     obj[QStringLiteral("targetIndex")] = assignment.targetIndex;
     obj[QStringLiteral("planned")] = assignment.planned;
+  obj[QStringLiteral("routeAlgorithm")] = QString::fromUtf8(mission::routeAlgorithmName(assignment.routeAlgorithmUsed));
+  obj[QStringLiteral("estimatedFlightTimeSeconds")] = assignment.estimatedFlightTimeSeconds;
+  obj[QStringLiteral("launchDelaySeconds")] = assignment.launchDelaySeconds;
+  obj[QStringLiteral("plannedImpactTimeSeconds")] = assignment.plannedImpactTimeSeconds;
+  obj[QStringLiteral("conflictResolved")] = assignment.conflictResolved;
     obj[QStringLiteral("metrics")] = metricsToJson(assignment.planResult.metrics);
     QJsonArray routeWaypoints;
     for (const auto& point : assignment.planResult.route) {
@@ -129,6 +134,10 @@ QString buildFlightReportHtml(const FlightReportData& report) {
     root[QStringLiteral("successCount")] = report.planningResult.successCount;
     root[QStringLiteral("failureCount")] = report.planningResult.failureCount;
     root[QStringLiteral("successRate")] = report.planningResult.successRate;
+    root[QStringLiteral("detectedConflictCount")] = report.planningResult.detectedConflictCount;
+    root[QStringLiteral("resolvedConflictCount")] = report.planningResult.resolvedConflictCount;
+    root[QStringLiteral("syncWindowSeconds")] = report.planningResult.syncWindowSeconds;
+    root[QStringLiteral("maxImpactTimeErrorSeconds")] = report.planningResult.maxImpactTimeErrorSeconds;
 
     QJsonArray missiles;
     for (const auto& missile : report.missiles) {
@@ -154,6 +163,10 @@ QString buildFlightReportHtml(const FlightReportData& report) {
     planningResult[QStringLiteral("successCount")] = report.planningResult.successCount;
     planningResult[QStringLiteral("failureCount")] = report.planningResult.failureCount;
     planningResult[QStringLiteral("successRate")] = report.planningResult.successRate;
+    planningResult[QStringLiteral("detectedConflictCount")] = report.planningResult.detectedConflictCount;
+    planningResult[QStringLiteral("resolvedConflictCount")] = report.planningResult.resolvedConflictCount;
+    planningResult[QStringLiteral("syncWindowSeconds")] = report.planningResult.syncWindowSeconds;
+    planningResult[QStringLiteral("maxImpactTimeErrorSeconds")] = report.planningResult.maxImpactTimeErrorSeconds;
     QJsonArray assignments;
     for (const auto& assignment : report.planningResult.assignments) {
         QJsonObject item = assignmentToJson(assignment);
@@ -162,6 +175,19 @@ QString buildFlightReportHtml(const FlightReportData& report) {
         assignments.append(item);
     }
     planningResult[QStringLiteral("assignments")] = assignments;
+
+    QJsonArray conflicts;
+    for (const auto& c : report.planningResult.conflicts) {
+      QJsonObject item;
+      item[QStringLiteral("missileA")] = c.missileA;
+      item[QStringLiteral("missileB")] = c.missileB;
+      item[QStringLiteral("minDistanceMeters")] = c.minDistanceMeters;
+      item[QStringLiteral("atTimeSeconds")] = c.atTimeSeconds;
+      item[QStringLiteral("resolved")] = c.resolved;
+      item[QStringLiteral("resolution")] = QString::fromStdString(c.resolution);
+      conflicts.append(item);
+    }
+    planningResult[QStringLiteral("conflicts")] = conflicts;
     root[QStringLiteral("planningResult")] = planningResult;
 
     QJsonArray routes;
@@ -663,6 +689,10 @@ body {
           <div class="kpi-item"><div class="kpi-label">失败数</div><div class="kpi-value">${report.failureCount || 0}</div></div>
           <div class="kpi-item"><div class="kpi-label">成功率</div><div class="kpi-value">${fmt((report.successRate || 0) * 100, 1)}%</div></div>
           <div class="kpi-item"><div class="kpi-label">耗时(ms)</div><div class="kpi-value">${fmt(report.planningResult?.totalPlanningTimeMs || 0, 2)}</div></div>
+          <div class="kpi-item"><div class="kpi-label">检测冲突</div><div class="kpi-value">${report.planningResult?.detectedConflictCount || 0}</div></div>
+          <div class="kpi-item"><div class="kpi-label">冲突已解</div><div class="kpi-value">${report.planningResult?.resolvedConflictCount || 0}</div></div>
+          <div class="kpi-item"><div class="kpi-label">同步窗口(s)</div><div class="kpi-value">${fmt(report.planningResult?.syncWindowSeconds || 0, 2)}</div></div>
+          <div class="kpi-item"><div class="kpi-label">同步误差(s)</div><div class="kpi-value">${fmt(report.planningResult?.maxImpactTimeErrorSeconds || 0, 2)}</div></div>
         </div>
       </div></div>
       <div class="card"><div class="card-header"><h3>遥测样本</h3><span class="subtle">实时可视化数据</span></div><div class="card-body">
@@ -798,8 +828,10 @@ body {
           </div></div>
           <div class="entity-card"><div class="entity-title">状态</div><div class="kv">
             <div>状态</div><span>${route.assignment?.planned ? (route.failed ? '失效' : (route.completed ? '完成' : '进行中')) : '未规划'}</span>
+            <div>路径算法</div><span>${esc(route.assignment?.routeAlgorithm || '--')}</span>
             <div>规划耗时</div><span>${fmt(route.assignment?.metrics?.planningTimeMs || 0, 2)} ms</span>
             <div>路径长度</div><span>${fmt(route.assignment?.metrics?.pathLengthMeters || 0, 1)} m</span>
+            <div>起飞延迟</div><span>${fmt(route.assignment?.launchDelaySeconds || 0, 2)} s</span>
             <div>扩展节点</div><span>${route.assignment?.metrics?.expandedNodes || 0}</span>
             <div>样本数</div><span>${(route.telemetry || []).length}</span>
             <div>命中目标</div><span>${route.assignment?.planned ? '是' : '否'}</span>
