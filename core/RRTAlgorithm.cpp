@@ -58,10 +58,14 @@ bool inThreat(
     double lonDeg,
     double latDeg,
     double altMeters,
-    const mission::ThreatZone& threat) {
+    const mission::ThreatZone& threat,
+    double missileMaxAltitude) {
     const double h = horizontalDistanceMeters(lonDeg, latDeg, threat.longitudeDeg, threat.latitudeDeg);
     if (h > threat.radiusMeters) {
         return false;
+    }
+    if (missileMaxAltitude > 0.0 && threat.maxAltitudeMeters >= missileMaxAltitude) {
+        return true;
     }
     return altMeters >= threat.minAltitudeMeters && altMeters <= threat.maxAltitudeMeters;
 }
@@ -76,7 +80,7 @@ bool pointSafe(
         return false;
     }
     for (const auto& threat : request.threats) {
-        if (inThreat(lonDeg, latDeg, altMeters, threat)) {
+        if (inThreat(lonDeg, latDeg, altMeters, threat, request.missileMaxAltitudeMeters)) {
             return false;
         }
     }

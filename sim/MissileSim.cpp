@@ -160,16 +160,32 @@ bool MissileSim::update(double deltaSeconds, osgEarth::GeoPoint& outPosition) {
     const double maxDrop = decelLimit * safeDeltaSeconds;
     const double deltaV = std::clamp(deltaVTarget, -maxDrop, maxRise);
     m_state.currentSpeedMetersPerSecond = std::max(20.0, m_state.currentSpeedMetersPerSecond + deltaV);
+    m_state.accelerationMetersPerSecond2 = safeDeltaSeconds > 1e-6 ? deltaV / safeDeltaSeconds : 0.0;
 
+    const double prevTraveled = m_state.traveledMeters;
     m_state.traveledMeters += safeDeltaSeconds * m_state.currentSpeedMetersPerSecond;
     if (m_state.traveledMeters >= m_state.totalMeters) {
         m_state.traveledMeters = m_state.totalMeters;
         m_state.running = false;
         m_state.phase = Phase::Completed;
         m_state.currentSpeedMetersPerSecond = 0.0;
+        m_state.accelerationMetersPerSecond2 = 0.0;
     }
 
+    const osgEarth::GeoPoint prevPos = sampleByDistance(prevTraveled);
     outPosition = sampleByDistance(m_state.traveledMeters);
+    m_state.altitudeMeters = outPosition.z();
+
+    const double dx = (outPosition.x() - prevPos.x()) * 111320.0 * std::max(0.1, std::cos(toRadians((outPosition.y() + prevPos.y()) * 0.5)));
+    const double dy = (outPosition.y() - prevPos.y()) * 111320.0;
+    const double dz = outPosition.z() - prevPos.z();
+    const double horizDist = std::sqrt(dx * dx + dy * dy);
+    const double totalDist = std::sqrt(horizDist * horizDist + dz * dz);
+    if (totalDist > 1e-3) {
+        m_state.pitchDegrees = std::asin(std::clamp(dz / totalDist, -1.0, 1.0)) * 57.29577951308232;
+        m_state.headingDegrees = std::atan2(dx, dy) * 57.29577951308232;
+    }
+
     return true;
 }
 

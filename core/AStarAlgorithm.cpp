@@ -244,6 +244,10 @@ SearchBounds buildSearchBounds(const mission::MissionRequest& request, const mis
          sampledTerrainMax + 3800.0,
          ballisticApex + 6000.0});
 
+    if (request.missileMaxAltitudeMeters > 0.0) {
+        bounds.maxAltMeters = std::min(bounds.maxAltMeters, request.missileMaxAltitudeMeters);
+    }
+
     double altStep = std::max(80.0, options.altitudeStepMeters);
     int nz = static_cast<int>(std::ceil((bounds.maxAltMeters - bounds.minAltMeters) / altStep)) + 1;
     while (nz > std::max(4, options.maxAltitudeLevels)) {
@@ -262,7 +266,8 @@ bool inThreatZone(
     double latDeg,
     double altMeters,
     const mission::ThreatZone& threat,
-    double altitudeSafetyMargin) {
+    double altitudeSafetyMargin,
+    double missileMaxAltitude) {
     const double horizontal = approxHorizontalDistanceMeters(
         lonDeg,
         latDeg,
@@ -271,6 +276,10 @@ bool inThreatZone(
 
     if (horizontal > threat.radiusMeters) {
         return false;
+    }
+
+    if (missileMaxAltitude > 0.0 && threat.maxAltitudeMeters >= missileMaxAltitude) {
+        return true;
     }
 
     return altMeters >= (threat.minAltitudeMeters - altitudeSafetyMargin) &&
@@ -282,7 +291,8 @@ double threatProximityPenalty(
     double latDeg,
     double altMeters,
     const std::vector<mission::ThreatZone>& threats,
-    double penaltyScale) {
+    double penaltyScale,
+    double missileMaxAltitude) {
     double penalty = 0.0;
 
     for (const auto& threat : threats) {
@@ -293,7 +303,8 @@ double threatProximityPenalty(
             threat.latitudeDeg);
 
         const double influenceRadius = threat.radiusMeters * 2.0;
-        const bool altitudeRelevant = altMeters <= (threat.maxAltitudeMeters + 1500.0);
+        const bool altitudeRelevant = (missileMaxAltitude > 0.0 && threat.maxAltitudeMeters >= missileMaxAltitude)
+            || altMeters <= (threat.maxAltitudeMeters + 1500.0);
         if (!altitudeRelevant || horizontal >= influenceRadius) {
             continue;
         }
@@ -324,7 +335,7 @@ bool isValidState(
     }
 
     for (const auto& threat : request.threats) {
-        if (inThreatZone(lonDeg, latDeg, altMeters, threat, 0.0)) {
+        if (inThreatZone(lonDeg, latDeg, altMeters, threat, 0.0, request.missileMaxAltitudeMeters)) {
             return false;
         }
     }
@@ -401,7 +412,7 @@ bool pointIsSafe(
     }
 
     for (const auto& threat : request.threats) {
-        if (inThreatZone(lonDeg, latDeg, altMeters, threat, 0.0)) {
+        if (inThreatZone(lonDeg, latDeg, altMeters, threat, 0.0, request.missileMaxAltitudeMeters)) {
             return false;
         }
     }
@@ -475,7 +486,7 @@ std::vector<osgEarth::GeoPoint> smoothRoute(
     }
 
     const auto* srs = route.front().getSRS();
-    for (int pass = 0; pass < 3; ++pass) {
+    for (int pass = 0; pass < 5; ++pass) {
         std::vector<osgEarth::GeoPoint> nextRoute = route;
         for (std::size_t i = 1; i + 1 < route.size(); ++i) {
             const auto& a = route[i - 1];
@@ -678,7 +689,8 @@ RoutePlanResult AStarAlgorithm::plan(const MissionRequest& request) const {
                 nextLat,
                 nextAlt,
                 request.threats,
-                m_options.threatPenaltyScale);
+                m_options.threatPenaltyScale,
+                request.missileMaxAltitudeMeters);
             if (!std::isfinite(proximityPenalty)) {
                 continue;
             }

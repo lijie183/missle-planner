@@ -38,10 +38,14 @@ bool pointInThreat(
     double latDeg,
     double altMeters,
     const mission::ThreatZone& threat,
-    double marginMeters = 0.0) {
+    double marginMeters,
+    double missileMaxAltitude) {
     const double h = horizontalDistanceMeters(lonDeg, latDeg, threat.longitudeDeg, threat.latitudeDeg);
     if (h > threat.radiusMeters + marginMeters) {
         return false;
+    }
+    if (missileMaxAltitude > 0.0 && threat.maxAltitudeMeters >= missileMaxAltitude) {
+        return true;
     }
     return altMeters >= (threat.minAltitudeMeters - marginMeters) &&
            altMeters <= (threat.maxAltitudeMeters + marginMeters);
@@ -57,7 +61,7 @@ bool pointIsSafe(
         return false;
     }
     for (const auto& threat : request.threats) {
-        if (pointInThreat(lonDeg, latDeg, altMeters, threat, 0.0)) {
+        if (pointInThreat(lonDeg, latDeg, altMeters, threat, 0.0, request.missileMaxAltitudeMeters)) {
             return false;
         }
     }
@@ -133,7 +137,9 @@ RoutePlanResult HybridRoutePlanner::plan(const MissionRequest& request) const {
                 pushLon += (dirLon / len) * w;
                 pushLat += (dirLat / len) * w;
 
-                if (curr.z() <= threat.maxAltitudeMeters + 800.0) {
+                bool canFlyOver = request.missileMaxAltitudeMeters <= 0.0 ||
+                                  threat.maxAltitudeMeters < request.missileMaxAltitudeMeters;
+                if (canFlyOver && curr.z() <= threat.maxAltitudeMeters + 800.0) {
                     double altPushW = (threat.maxAltitudeMeters + 900.0 - curr.z()) * 0.06;
                     if (h <= threat.radiusMeters) {
                         altPushW *= 3.0;

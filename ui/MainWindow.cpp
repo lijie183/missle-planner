@@ -256,6 +256,7 @@ void MainWindow::onAddMissile() {
     cfg.startAltMeters = m_missileAlt->value();
     cfg.missileType = m_missileTypeCombo->currentIndex();
     cfg.speedMps = m_missileSpeedSpin->value();
+    cfg.maxAltitudeMeters = m_missileMaxAltSpin->value();
     ++m_nextMissileId;
 
     m_missileConfigs.push_back(cfg);
@@ -380,6 +381,25 @@ void MainWindow::onPlanRoute() {
         m_planButton->setEnabled(false);
         m_planButton->setText(QStringLiteral("规划计算中..."));
     }
+
+    m_planProgress.store(0);
+    m_planProgressDialog = new QProgressDialog(QStringLiteral("正在执行多导弹协同规划..."), QString(), 0, 100, this);
+    m_planProgressDialog->setWindowTitle(QStringLiteral("规划进度"));
+    m_planProgressDialog->setWindowModality(Qt::WindowModal);
+    m_planProgressDialog->setMinimumDuration(0);
+    m_planProgressDialog->setCancelButton(nullptr);
+    m_planProgressDialog->setValue(0);
+    m_planProgressDialog->setAutoClose(false);
+    m_planProgressDialog->setAutoReset(false);
+
+    m_planProgressTimer.disconnect();
+    connect(&m_planProgressTimer, &QTimer::timeout, this, [this]() {
+        if (m_planProgressDialog != nullptr) {
+            m_planProgressDialog->setValue(m_planProgress.load());
+        }
+    });
+    m_planProgressTimer.start(100);
+
     statusBar()->showMessage(QStringLiteral("正在后台执行多导弹协同规划，UI可继续交互..."));
 
     mission::MultiMissilePlanner::Options options;
@@ -449,10 +469,11 @@ void MainWindow::onPlanRoute() {
         std::vector<AlgorithmCompareItem> algorithmComparisons;
         algorithmComparisons.reserve(routeAlgorithms.size());
 
-        for (const auto routeAlgorithm : routeAlgorithms) {
+        for (std::size_t algoIdx = 0; algoIdx < routeAlgorithms.size(); ++algoIdx) {
             if (!m_planRunning.load()) {
                 break;
             }
+            const auto routeAlgorithm = routeAlgorithms[algoIdx];
             quickOptions.routeAlgorithm = routeAlgorithm;
 
             AlgorithmCompareItem item;
@@ -461,6 +482,8 @@ void MainWindow::onPlanRoute() {
             item.result = planner.plan(missilesCopy, targetsCopy, threatsCopy, quickOptions);
             item.score = computeResultScore(item.result);
             algorithmComparisons.push_back(item);
+
+            m_planProgress.store(static_cast<int>((algoIdx + 1) * 18));
         }
 
         const int routeIndex = 0;
@@ -498,6 +521,7 @@ void MainWindow::onPlanRoute() {
             algorithmComparisons[selectedIndex].result =
                 planner.plan(missilesCopy, targetsCopy, threatsCopy, options);
             algorithmComparisons[selectedIndex].score = computeResultScore(algorithmComparisons[selectedIndex].result);
+            m_planProgress.store(90);
         }
 
         PlanWorkResult result;
@@ -520,6 +544,14 @@ void MainWindow::onPlanRoute() {
 }
 
 void MainWindow::onPlanRouteFinished() {
+    m_planProgressTimer.stop();
+    if (m_planProgressDialog != nullptr) {
+        m_planProgressDialog->setValue(100);
+        m_planProgressDialog->close();
+        delete m_planProgressDialog;
+        m_planProgressDialog = nullptr;
+    }
+
     if (m_planButton != nullptr) {
         m_planButton->setEnabled(true);
         m_planButton->setText(QStringLiteral("执行多导弹协同规划"));
@@ -1153,6 +1185,7 @@ void MainWindow::buildUi() {
     m_missileTypeCombo->addItems({
         QStringLiteral("高亚音速"), QStringLiteral("超音速"), QStringLiteral("高超滑翔")});
     m_missileSpeedSpin = createSpinBox(30.0, 2500.0, 900.0, 0, 20.0, missileGroup);
+    m_missileMaxAltSpin = createSpinBox(1000.0, 120000.0, 25000.0, 0, 1000.0, missileGroup);
 
     int r = 0;
     missileParamLayout->addWidget(new QLabel(QStringLiteral("经度"), missileGroup), r, 0);
@@ -1167,6 +1200,8 @@ void MainWindow::buildUi() {
     ++r;
     missileParamLayout->addWidget(new QLabel(QStringLiteral("速度(m/s)"), missileGroup), r, 0);
     missileParamLayout->addWidget(m_missileSpeedSpin, r, 1);
+    missileParamLayout->addWidget(new QLabel(QStringLiteral("最大高度(m)"), missileGroup), r, 2);
+    missileParamLayout->addWidget(m_missileMaxAltSpin, r, 3);
     missileParamLayout->setRowMinimumHeight(0, 28);
     missileParamLayout->setRowMinimumHeight(1, 28);
     missileParamLayout->setRowMinimumHeight(2, 28);
@@ -1871,6 +1906,7 @@ void MainWindow::saveCurrentMissileParams() {
     cfg.startAltMeters = m_missileAlt->value();
     cfg.missileType = m_missileTypeCombo->currentIndex();
     cfg.speedMps = m_missileSpeedSpin->value();
+    cfg.maxAltitudeMeters = m_missileMaxAltSpin->value();
 
     syncEarthWidgetFromConfig();
 }
@@ -1898,18 +1934,21 @@ void MainWindow::loadMissileParams(int index) {
     m_missileAlt->blockSignals(true);
     m_missileTypeCombo->blockSignals(true);
     m_missileSpeedSpin->blockSignals(true);
+    m_missileMaxAltSpin->blockSignals(true);
 
     m_missileLon->setValue(cfg.startLonDeg);
     m_missileLat->setValue(cfg.startLatDeg);
     m_missileAlt->setValue(cfg.startAltMeters);
     m_missileTypeCombo->setCurrentIndex(cfg.missileType);
     m_missileSpeedSpin->setValue(cfg.speedMps);
+    m_missileMaxAltSpin->setValue(cfg.maxAltitudeMeters);
 
     m_missileLon->blockSignals(false);
     m_missileLat->blockSignals(false);
     m_missileAlt->blockSignals(false);
     m_missileTypeCombo->blockSignals(false);
     m_missileSpeedSpin->blockSignals(false);
+    m_missileMaxAltSpin->blockSignals(false);
 }
 
 void MainWindow::loadTargetParams(int index) {
@@ -1961,27 +2000,23 @@ void MainWindow::populateDefaultScenario() {
     }
 
     m_missileConfigs = {
-        {"M1", "导弹-1", 103.80, 32.10, 1800.0, 0, 880.0},
-        {"M2", "导弹-2", 105.20, 30.60, 2000.0, 1, 980.0},
-        {"M3", "导弹-3", 107.00, 31.40, 2200.0, 1, 1020.0},
-        {"M4", "导弹-4", 101.70, 29.90, 1600.0, 0, 860.0},
-        {"M5", "导弹-5", 109.30, 28.70, 2600.0, 2, 1320.0},
-        {"M6", "导弹-6", 111.40, 30.20, 2400.0, 2, 1280.0},
+        {"M1", "导弹-1", 103.80, 32.10, 1800.0, 0, 880.0, 28000.0},
+        {"M2", "导弹-2", 105.20, 30.60, 2000.0, 1, 980.0, 26000.0},
+        {"M3", "导弹-3", 107.00, 31.40, 2200.0, 1, 1020.0, 26000.0},
+        {"M4", "导弹-4", 101.70, 29.90, 1600.0, 0, 860.0, 28000.0},
     };
 
     m_targetConfigs = {
         {"T1", "指挥中心A", 118.40, 40.20, 2200.0, 10},
-        {"T2", "指挥中心B", 117.30, 39.40, 2100.0, 10},
-        {"T3", "雷达站A", 116.70, 37.20, 1800.0, 8},
-        {"T4", "补给站A", 114.90, 36.10, 1500.0, 6},
-        {"T5", "防空阵地A", 115.60, 38.30, 1600.0, 7},
-        {"T6", "通信节点", 119.20, 36.70, 1200.0, 5},
+        {"T2", "雷达站A", 116.70, 37.20, 1800.0, 8},
+        {"T3", "补给站A", 114.90, 36.10, 1500.0, 6},
+        {"T4", "防空阵地A", 115.60, 38.30, 1600.0, 7},
     };
 
     m_threatZones = {
-        {111.20, 36.60, 86000.0, 0.0, 26000.0},
+        {111.20, 36.60, 86000.0, 0.0, 25000.0},
         {114.80, 37.80, 68000.0, 0.0, 22000.0},
-        {116.10, 39.20, 76000.0, 0.0, 30000.0},
+        {116.10, 39.20, 76000.0, 0.0, 27000.0},
         {118.20, 35.90, 52000.0, 0.0, 20000.0},
         {113.40, 34.70, 48000.0, 0.0, 18000.0},
     };

@@ -38,6 +38,7 @@ struct MissionRequest {
     osgEarth::GeoPoint start;
     osgEarth::GeoPoint goal;
     std::vector<ThreatZone> threats;
+    double missileMaxAltitudeMeters = 25000.0;
 };
 
 struct RoutePlanResult {
@@ -67,6 +68,7 @@ struct MissileConfig {
     double startAltMeters = 1800.0;
     int missileType = 0;
     double speedMps = 900.0;
+    double maxAltitudeMeters = 25000.0;
 };
 
 struct TargetConfig {

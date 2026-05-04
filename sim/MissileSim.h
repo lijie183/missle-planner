@@ -23,6 +23,10 @@ public:
         double traveledMeters = 0.0;
         double totalMeters = 0.0;
         double elapsedSeconds = 0.0;
+        double altitudeMeters = 0.0;
+        double pitchDegrees = 0.0;
+        double headingDegrees = 0.0;
+        double accelerationMetersPerSecond2 = 0.0;
         Phase phase = Phase::Idle;
     };
 

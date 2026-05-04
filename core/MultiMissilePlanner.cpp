@@ -287,6 +287,7 @@ MultiMissionResult MultiMissilePlanner::plan(
                     wgs84, targets[assign.targetIndex].lonDeg, targets[assign.targetIndex].latDeg,
                     targets[assign.targetIndex].altMeters, osgEarth::ALTMODE_ABSOLUTE);
                 request.threats = threats;
+                request.missileMaxAltitudeMeters = missiles[i].maxAltitudeMeters;
 
                 switch (options.routeAlgorithm) {
                     case RouteAlgorithm::AStar:

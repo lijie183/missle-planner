@@ -3,6 +3,7 @@
 #include <QMainWindow>
 #include <QElapsedTimer>
 #include <QTimer>
+#include <QProgressDialog>
 
 #include <atomic>
 #include <map>
@@ -127,6 +128,7 @@ private:
     QDoubleSpinBox* m_missileAlt = nullptr;
     QComboBox* m_missileTypeCombo = nullptr;
     QDoubleSpinBox* m_missileSpeedSpin = nullptr;
+    QDoubleSpinBox* m_missileMaxAltSpin = nullptr;
 
     QListWidget* m_targetList = nullptr;
     QDoubleSpinBox* m_targetLon = nullptr;
@@ -183,8 +185,11 @@ private:
     qint64 m_lastTickMs = 0;
 
     QPushButton* m_planButton = nullptr;
+    QProgressDialog* m_planProgressDialog = nullptr;
+    QTimer m_planProgressTimer;
     std::thread m_planThread;
     std::atomic<bool> m_planRunning{false};
+    std::atomic<int> m_planProgress{0};
     PlanWorkResult m_planResult;
     std::mutex m_planResultMutex;
 

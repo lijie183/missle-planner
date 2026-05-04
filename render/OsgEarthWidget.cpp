@@ -2029,7 +2029,7 @@ void OsgEarthWidget::rebuildMissileTrailGeometry(int index) {
         return;
     }
 
-    const std::vector<osgEarth::GeoPoint> renderTrail = smoothPolylineForRender(mv.trail, 0.18, 6);
+    const std::vector<osgEarth::GeoPoint> renderTrail = smoothPolylineForRender(mv.trail, 0.2, 7);
 
     osg::ref_ptr<osg::Vec3Array> vertices = new osg::Vec3Array;
     vertices->reserve(renderTrail.size());
