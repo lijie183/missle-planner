@@ -647,13 +647,10 @@ RoutePlanResult AStarAlgorithm::plan(const MissionRequest& request) const {
             const double nextLat = keyToLatDeg(next, bounds);
             const double nextAlt = keyToAltMeters(next, bounds);
 
-            const bool isDiagonal = (offset.x != 0 && offset.y != 0) || (offset.z != 0 && (offset.x != 0 || offset.y != 0));
-            if (isDiagonal) {
-                osgEarth::GeoPoint fromPt(wgs84, currentLon, currentLat, currentAlt, osgEarth::ALTMODE_ABSOLUTE);
-                osgEarth::GeoPoint toPt(wgs84, nextLon, nextLat, nextAlt, osgEarth::ALTMODE_ABSOLUTE);
-                if (!segmentIsSafe(fromPt, toPt, request, m_options)) {
-                    continue;
-                }
+            osgEarth::GeoPoint fromPt(wgs84, currentLon, currentLat, currentAlt, osgEarth::ALTMODE_ABSOLUTE);
+            osgEarth::GeoPoint toPt(wgs84, nextLon, nextLat, nextAlt, osgEarth::ALTMODE_ABSOLUTE);
+            if (!segmentIsSafe(fromPt, toPt, request, m_options)) {
+                continue;
             }
 
             const double missionDistanceMeters = approxHorizontalDistanceMeters(
@@ -769,6 +766,8 @@ RoutePlanResult AStarAlgorithm::plan(const MissionRequest& request) const {
             std::max(request.goal.z(), terrainHeightMeters(request.goal.x(), request.goal.y()) + m_options.safetyClearanceMeters),
             osgEarth::ALTMODE_ABSOLUTE);
 
+        const std::vector<osgEarth::GeoPoint> baselineSafeRoute = result.route;
+
         result.route = smoothRoute(result.route, request, m_options);
 
         for (int fixPass = 0; fixPass < 4; ++fixPass) {
@@ -816,6 +815,29 @@ RoutePlanResult AStarAlgorithm::plan(const MissionRequest& request) const {
             request.goal.y(),
             std::max(request.goal.z(), terrainHeightMeters(request.goal.x(), request.goal.y()) + m_options.safetyClearanceMeters),
             osgEarth::ALTMODE_ABSOLUTE);
+
+        bool routeSafe = true;
+        for (std::size_t i = 1; i < result.route.size(); ++i) {
+            if (!segmentIsSafe(result.route[i - 1], result.route[i], request, m_options)) {
+                routeSafe = false;
+                break;
+            }
+        }
+        if (!routeSafe) {
+            result.route = simplifyRoute(baselineSafeRoute, request, m_options);
+            result.route.front() = osgEarth::GeoPoint(
+                wgs84,
+                request.start.x(),
+                request.start.y(),
+                std::max(request.start.z(), terrainHeightMeters(request.start.x(), request.start.y()) + m_options.safetyClearanceMeters),
+                osgEarth::ALTMODE_ABSOLUTE);
+            result.route.back() = osgEarth::GeoPoint(
+                wgs84,
+                request.goal.x(),
+                request.goal.y(),
+                std::max(request.goal.z(), terrainHeightMeters(request.goal.x(), request.goal.y()) + m_options.safetyClearanceMeters),
+                osgEarth::ALTMODE_ABSOLUTE);
+        }
     }
 
     result.metrics.success = true;

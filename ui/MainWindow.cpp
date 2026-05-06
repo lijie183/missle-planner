@@ -268,9 +268,10 @@ MainWindow::MainWindow(QWidget* parent)
     syncEarthWidgetFromConfig();
     if (m_earthWidget != nullptr) {
         m_earthWidget->setThreatZones(m_threatZones);
+        m_earthWidget->focusOnMissionArea();
     }
 
-    statusBar()->showMessage(QStringLiteral("系统就绪：请配置导弹与目标参数后执行多导弹规划。"));
+    statusBar()->showMessage(QStringLiteral("系统就绪：请配置导弹与目标参数后进行航路规划。"));
 }
 
 MainWindow::~MainWindow() {
@@ -426,7 +427,7 @@ void MainWindow::onPlanRoute() {
     }
 
     if (m_planRunning.load()) {
-        statusBar()->showMessage(QStringLiteral("规划正在执行中，请等待完成..."), 3000);
+        statusBar()->showMessage(QStringLiteral("航路规划进行中，请等待完成..."), 3000);
         return;
     }
 
@@ -437,12 +438,12 @@ void MainWindow::onPlanRoute() {
 
     if (m_planButton != nullptr) {
         m_planButton->setEnabled(false);
-        m_planButton->setText(QStringLiteral("规划计算中..."));
+        m_planButton->setText(QStringLiteral("规划中..."));
     }
 
     m_planProgress.store(0);
-    m_planProgressDialog = new QProgressDialog(QStringLiteral("正在执行多导弹协同规划..."), QString(), 0, 100, this);
-    m_planProgressDialog->setWindowTitle(QStringLiteral("规划进度"));
+    m_planProgressDialog = new QProgressDialog(QStringLiteral("正在规划航路方案..."), QString(), 0, 100, this);
+    m_planProgressDialog->setWindowTitle(QStringLiteral("航路规划进度"));
     m_planProgressDialog->setWindowModality(Qt::WindowModal);
     m_planProgressDialog->setMinimumDuration(0);
     m_planProgressDialog->setCancelButton(nullptr);
@@ -458,7 +459,7 @@ void MainWindow::onPlanRoute() {
     });
     m_planProgressTimer.start(100);
 
-    statusBar()->showMessage(QStringLiteral("正在后台执行多导弹协同规划，UI可继续交互..."));
+    statusBar()->showMessage(QStringLiteral("正在后台规划航路方案，UI可继续交互..."));
 
     mission::MultiMissilePlanner::Options options;
     options.astarOptions.gridStepDeg = m_gridStepSpin->value();
@@ -612,7 +613,7 @@ void MainWindow::onPlanRouteFinished() {
 
     if (m_planButton != nullptr) {
         m_planButton->setEnabled(true);
-        m_planButton->setText(QStringLiteral("执行多导弹协同规划"));
+        m_planButton->setText(QStringLiteral("规划生成航路方案"));
     }
 
     PlanWorkResult result;
@@ -675,7 +676,7 @@ void MainWindow::onPlanRouteFinished() {
     refreshSceneDataSourceLabel();
 
     statusBar()->showMessage(
-        QStringLiteral("多导弹规划完成（%1 + %2）：成功 %3 / 失败 %4，冲突 %5，同步误差 %6s")
+        QStringLiteral("航路规划完成（%1 + %2）：成功 %3 / 失败 %4，冲突 %5，同步误差 %6s")
             .arg(allocationMethodName(m_lastPlanningMethod))
             .arg(routeAlgorithmDisplayName(m_lastRouteAlgorithm))
             .arg(m_lastMultiResult.successCount)
@@ -915,7 +916,7 @@ void MainWindow::onDynamicReplan() {
     }
 
     if (failedIndices.empty()) {
-        QMessageBox::information(this, QStringLiteral("提示"), QStringLiteral("当前无失效导弹，无需重规划。"));
+        QMessageBox::information(this, QStringLiteral("提示"), QStringLiteral("当前无失效导弹，无需重新规划航路。"));
         return;
     }
 
@@ -995,7 +996,7 @@ void MainWindow::onDynamicReplan() {
     }
 
     statusBar()->showMessage(
-        QStringLiteral("动态重规划完成：成功 %1 / 失败 %2")
+        QStringLiteral("航路重新规划完成：成功 %1 / 失败 %2")
             .arg(m_lastMultiResult.successCount)
             .arg(m_lastMultiResult.failureCount),
         5000);
@@ -1100,7 +1101,7 @@ void MainWindow::buildUi() {
     m_redTargetCountValue = new QLabel(QStringLiteral("0"), overviewGroup);
     m_threatZoneCountValue = new QLabel(QStringLiteral("0"), overviewGroup);
     m_scenarioBalanceValue = new QLabel(QStringLiteral("待配置"), overviewGroup);
-    m_planHealthValue = new QLabel(QStringLiteral("未规划"), overviewGroup);
+    m_planHealthValue = new QLabel(QStringLiteral("航路未规划"), overviewGroup);
     overviewLayout->addRow(QStringLiteral("蓝方导弹"), m_blueForceCountValue);
     overviewLayout->addRow(QStringLiteral("红方目标"), m_redTargetCountValue);
     overviewLayout->addRow(QStringLiteral("威胁区"), m_threatZoneCountValue);
@@ -1146,9 +1147,9 @@ void MainWindow::buildUi() {
     algoLayout->addRow(QStringLiteral(""), m_threatPenaltyCheck);
     commandLayout->addWidget(algoGroup);
 
-    auto* actionGroup = new QGroupBox(QStringLiteral("规划与推演"), commandPanel);
+    auto* actionGroup = new QGroupBox(QStringLiteral("航路规划与验证"), commandPanel);
     auto* actionLayout = new QVBoxLayout(actionGroup);
-    m_planButton = new QPushButton(QStringLiteral("执行多导弹协同规划"), actionGroup);
+    m_planButton = new QPushButton(QStringLiteral("规划生成航路方案"), actionGroup);
     auto* simButton = new QPushButton(QStringLiteral("开始多弹三维推演"), actionGroup);
 
     auto* speedLayout = new QFormLayout;
@@ -1167,7 +1168,7 @@ void MainWindow::buildUi() {
     auto* replanLayout = new QHBoxLayout(replanGroup);
     m_failureMissileCombo = new QComboBox(replanGroup);
     auto* failButton = new QPushButton(QStringLiteral("模拟导弹失效"), replanGroup);
-    auto* replanButton = new QPushButton(QStringLiteral("执行动态重规划"), replanGroup);
+    auto* replanButton = new QPushButton(QStringLiteral("重新规划航路"), replanGroup);
     replanLayout->addWidget(m_failureMissileCombo, 1);
     replanLayout->addWidget(failButton);
     replanLayout->addWidget(replanButton);
@@ -1196,7 +1197,7 @@ void MainWindow::buildUi() {
     telemetryLayout->addWidget(m_telemetryWidget);
     telemetryGroup->setMinimumHeight(320);
 
-    auto* mapGroup = new QGroupBox(QStringLiteral("任务规划态势图（导弹 / 目标 / 威胁）"), planningRightPane);
+    auto* mapGroup = new QGroupBox(QStringLiteral("航路规划态势图（导弹 / 目标 / 威胁）"), planningRightPane);
     auto* mapLayout = new QVBoxLayout(mapGroup);
     mapLayout->setContentsMargins(6, 10, 6, 6);
     m_earthWidget = new OsgEarthWidget(mapGroup);
@@ -1997,9 +1998,9 @@ void MainWindow::updateOverallMetrics() {
 
     if (m_planHealthValue != nullptr) {
         if (m_lastMultiResult.assignments.empty()) {
-            m_planHealthValue->setText(QStringLiteral("未规划"));
+            m_planHealthValue->setText(QStringLiteral("航路未规划"));
         } else if (m_simulationTimer.isActive()) {
-            m_planHealthValue->setText(QStringLiteral("推演中"));
+            m_planHealthValue->setText(QStringLiteral("验证中"));
         } else if (successRate >= 0.8) {
             m_planHealthValue->setText(QStringLiteral("优秀"));
         } else if (successRate >= 0.5) {
@@ -2150,6 +2151,14 @@ void MainWindow::syncEarthWidgetFromConfig() {
     if (wgs84 == nullptr) return;
 
     m_earthWidget->setMissileCount(static_cast<int>(m_missileConfigs.size()));
+    m_earthWidget->setThreatZones(m_threatZones);
+
+    std::vector<std::string> names;
+    names.reserve(m_missileConfigs.size());
+    for (const auto& mc : m_missileConfigs) {
+        names.push_back(mc.name);
+    }
+    m_earthWidget->setMissileNames(names);
 
     for (std::size_t i = 0; i < m_missileConfigs.size(); ++i) {
         const auto& mc = m_missileConfigs[i];
@@ -2164,6 +2173,8 @@ void MainWindow::syncEarthWidgetFromConfig() {
             wgs84, tc.lonDeg, tc.latDeg, tc.altMeters, osgEarth::ALTMODE_ABSOLUTE);
         m_earthWidget->setMissileTargetPoint(static_cast<int>(j), targetPoint);
     }
+
+    m_earthWidget->focusOnMissionArea();
 }
 
 void MainWindow::populateDefaultScenario() {

@@ -391,19 +391,8 @@ void drawHoverOverlay(
 }  // namespace
 
 QColor TelemetryPlotWidget::missileColor(int index) {
-    static const QColor palette[] = {
-        QColor(248, 194, 79),
-        QColor(119, 234, 145),
-        QColor(86, 214, 255),
-        QColor(236, 121, 193),
-        QColor(166, 145, 245),
-        QColor(255, 155, 105),
-        QColor(255, 107, 107),
-        QColor(78, 205, 196),
-        QColor(255, 230, 109),
-        QColor(168, 230, 207)};
-    constexpr int count = sizeof(palette) / sizeof(palette[0]);
-    return palette[std::abs(index) % count];
+    const osg::Vec4 c = mission::missileColor(index);
+    return QColor::fromRgbF(c.r(), c.g(), c.b(), c.a());
 }
 
 TelemetryPlotWidget::TelemetryPlotWidget(QWidget* parent)

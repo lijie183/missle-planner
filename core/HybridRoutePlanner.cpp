@@ -81,6 +81,28 @@ double routeLengthMeters(const std::vector<osgEarth::GeoPoint>& route) {
     return sum;
 }
 
+double lerp(double a, double b, double t) {
+    return a + (b - a) * t;
+}
+
+bool segmentIsSafe(
+    const osgEarth::GeoPoint& a,
+    const osgEarth::GeoPoint& b,
+    const mission::MissionRequest& request,
+    double clearanceMeters) {
+    constexpr int kSamples = 18;
+    for (int i = 0; i <= kSamples; ++i) {
+        const double t = static_cast<double>(i) / static_cast<double>(kSamples);
+        const double lon = lerp(a.x(), b.x(), t);
+        const double lat = lerp(a.y(), b.y(), t);
+        const double alt = lerp(a.z(), b.z(), t);
+        if (!pointIsSafe(lon, lat, alt, request, clearanceMeters)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 }  // namespace
 
 namespace mission {
@@ -162,6 +184,11 @@ RoutePlanResult HybridRoutePlanner::plan(const MissionRequest& request) const {
             const double alt = std::max(0.0, curr.z() * 0.60 + smoothAlt * 0.40 + altDelta);
 
             next[i] = osgEarth::GeoPoint(wgs84, lon, lat, alt, osgEarth::ALTMODE_ABSOLUTE);
+
+            if (!segmentIsSafe(route[i - 1], next[i], request, m_options.astarOptions.safetyClearanceMeters) ||
+                !segmentIsSafe(next[i], route[i + 1], request, m_options.astarOptions.safetyClearanceMeters)) {
+                next[i] = curr;
+            }
         }
         route.swap(next);
     }
@@ -196,6 +223,7 @@ RoutePlanResult HybridRoutePlanner::plan(const MissionRequest& request) const {
         }
     }
 
+    const std::vector<osgEarth::GeoPoint> originalSafeRoute = base.route;
     const double oldLength = base.metrics.pathLengthMeters;
     const double newLength = routeLengthMeters(route);
 
@@ -206,6 +234,19 @@ RoutePlanResult HybridRoutePlanner::plan(const MissionRequest& request) const {
     if (oldLength > 1e-6 && newLength < oldLength) {
         const double improveRate = (oldLength - newLength) / oldLength * 100.0;
         base.metrics.message += " 路径长度改进 " + std::to_string(improveRate).substr(0, 5) + "%";
+    }
+
+    bool allSegmentsSafe = true;
+    for (std::size_t i = 1; i < route.size(); ++i) {
+        if (!segmentIsSafe(route[i - 1], route[i], request, m_options.astarOptions.safetyClearanceMeters)) {
+            allSegmentsSafe = false;
+            break;
+        }
+    }
+    if (!allSegmentsSafe) {
+        base.route = originalSafeRoute;
+        base.metrics.pathLengthMeters = routeLengthMeters(base.route);
+        base.metrics.message = "Hybrid优化后出现风险段，已回退至安全路径。";
     }
 
     return base;

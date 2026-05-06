@@ -17,6 +17,8 @@
 #include <QTimer>
 #include <QFileInfo>
 #include <QDebug>
+#include <QDateTime>
+#include <QToolTip>
 
 #include <osg/Camera>
 #include <osg/Geometry>
@@ -31,6 +33,7 @@
 #include <osg/StateSet>
 #include <osg/Texture2D>
 #include <osg/Vec3d>
+#include <osg/Vec4d>
 #include <osg/Image>
 
 #include <osgDB/ReadFile>
@@ -280,12 +283,12 @@ osg::ref_ptr<osg::MatrixTransform> buildThreatVisualNode(const mission::ThreatZo
     xform->setMatrix(makeUpAlignedMatrix(world));
 
     const double threatScale = clamp01(0.2 + threat.radiusMeters / 45000.0 + height / 12000.0);
-    const osg::Vec4 hotCore = mixColor(osg::Vec4(1.0f, 0.90f, 0.20f, 0.78f), osg::Vec4(1.0f, 0.18f, 0.08f, 0.92f), threatScale);
-    const osg::Vec4 coreColor(hotCore.r(), hotCore.g(), hotCore.b(), 0.42f);
-    const osg::Vec4 shellColor(1.0f, 0.42f + static_cast<float>(0.18 * threatScale), 0.08f, 0.24f);
-    const osg::Vec4 hazeColor(1.0f, 0.22f, 0.10f, 0.12f);
-    const osg::Vec4 ringColor(1.0f, 0.94f, 0.28f, 0.45f);
-    const osg::Vec4 pillarColor(1.0f, 0.96f, 0.34f, 0.72f);
+    const osg::Vec4 hotCore = mixColor(osg::Vec4(1.0f, 0.88f, 0.18f, 0.82f), osg::Vec4(1.0f, 0.14f, 0.06f, 0.96f), threatScale);
+    const osg::Vec4 coreColor(hotCore.r(), hotCore.g(), hotCore.b(), 0.56f);
+    const osg::Vec4 shellColor(1.0f, 0.35f + static_cast<float>(0.20 * threatScale), 0.06f, 0.30f);
+    const osg::Vec4 hazeColor(1.0f, 0.20f, 0.08f, 0.14f);
+    const osg::Vec4 ringColor(1.0f, 0.95f, 0.30f, 0.58f);
+    const osg::Vec4 pillarColor(1.0f, 0.97f, 0.40f, 0.86f);
 
     auto addCylinder = [&](double radiusMeters, double cylinderHeight, const osg::Vec4& color, double zOffsetMeters) {
         osg::ref_ptr<osg::Geode> geode = new osg::Geode;
@@ -305,13 +308,29 @@ osg::ref_ptr<osg::MatrixTransform> buildThreatVisualNode(const mission::ThreatZo
         xform->addChild(geode.get());
     };
 
-    addCylinder(threat.radiusMeters * 1.12, height * 0.92, hazeColor, 0.0);
-    addCylinder(threat.radiusMeters * 0.86, height * 0.98, shellColor, 0.0);
-    addCylinder(threat.radiusMeters * 0.52, height * 1.04, coreColor, 0.0);
-    addCylinder(std::max(160.0, threat.radiusMeters * 0.11), height * 1.08, pillarColor, 0.0);
+    addCylinder(threat.radiusMeters * 1.28, height * 0.96, hazeColor, 0.0);
+    addCylinder(threat.radiusMeters * 0.96, height * 1.02, shellColor, 0.0);
+    addCylinder(threat.radiusMeters * 0.58, height * 1.08, coreColor, 0.0);
+    addCylinder(std::max(180.0, threat.radiusMeters * 0.13), height * 1.22, pillarColor, 0.0);
 
-    xform->addChild(buildRingGeode(threat.radiusMeters * 1.12, static_cast<double>(height) * 0.5, ringColor).get());
-    xform->addChild(buildRingGeode(threat.radiusMeters * 1.12, -static_cast<double>(height) * 0.5, ringColor).get());
+    osg::ref_ptr<osg::Geode> topCapGeode = new osg::Geode;
+    osg::ref_ptr<osg::ShapeDrawable> topCap = new osg::ShapeDrawable(
+        new osg::Cone(
+            osg::Vec3(0.0f, 0.0f, static_cast<float>(height * 0.66)),
+            static_cast<float>(std::max(2200.0, threat.radiusMeters * 0.22)),
+            static_cast<float>(std::max(900.0, height * 0.24))));
+    topCap->setColor(osg::Vec4(1.0f, 0.97f, 0.48f, 0.80f));
+    topCapGeode->addDrawable(topCap.get());
+    osg::StateSet* topCapState = topCapGeode->getOrCreateStateSet();
+    topCapState->setMode(GL_BLEND, osg::StateAttribute::ON);
+    topCapState->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+    topCapState->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
+    topCapState->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
+    xform->addChild(topCapGeode.get());
+
+    xform->addChild(buildRingGeode(threat.radiusMeters * 1.28, static_cast<double>(height) * 0.52, ringColor).get());
+    xform->addChild(buildRingGeode(threat.radiusMeters * 1.28, -static_cast<double>(height) * 0.52, ringColor).get());
+    xform->addChild(buildRingGeode(threat.radiusMeters * 0.78, static_cast<double>(height) * 0.30, osg::Vec4(1.0f, 0.86f, 0.20f, 0.45f)).get());
 
     return xform;
 }
@@ -323,18 +342,34 @@ osg::ref_ptr<osg::Node> buildVerticalMarkerNode(const osgEarth::GeoPoint& point,
     osg::ref_ptr<osg::MatrixTransform> xform = new osg::MatrixTransform;
     xform->setMatrix(makeUpAlignedMatrix(world));
 
+    const double mastHeight = std::max(4500.0, point.z() * 0.95 + 2200.0);
     osg::ref_ptr<osg::Geode> geode = new osg::Geode;
-    osg::ref_ptr<osg::ShapeDrawable> pillar = new osg::ShapeDrawable(
-        new osg::Cylinder(osg::Vec3(0.0f, 0.0f, 0.0f),
-                          static_cast<float>(radiusMeters),
-                          static_cast<float>(std::max(400.0, point.z() * 1.02))));
-    pillar->setColor(color);
-    geode->addDrawable(pillar.get());
+
+    osg::ref_ptr<osg::ShapeDrawable> baseRing = new osg::ShapeDrawable(
+        new osg::Cylinder(
+            osg::Vec3(0.0f, 0.0f, 0.0f),
+            static_cast<float>(radiusMeters * 1.62),
+            static_cast<float>(std::max(700.0, radiusMeters * 0.34))));
+    baseRing->setColor(osg::Vec4(color.r() * 0.72f, color.g() * 0.72f, color.b() * 0.72f, 0.58f));
+    geode->addDrawable(baseRing.get());
+
+    osg::ref_ptr<osg::ShapeDrawable> mast = new osg::ShapeDrawable(
+        new osg::Cylinder(
+            osg::Vec3(0.0f, 0.0f, static_cast<float>(mastHeight * 0.5)),
+            static_cast<float>(radiusMeters * 0.62),
+            static_cast<float>(mastHeight)));
+    mast->setColor(osg::Vec4(color.r(), color.g(), color.b(), std::min(0.98f, color.a() + 0.05f)));
+    geode->addDrawable(mast.get());
 
     osg::ref_ptr<osg::ShapeDrawable> cap = new osg::ShapeDrawable(
-        new osg::Sphere(osg::Vec3(0.0f, 0.0f, static_cast<float>(std::max(400.0, point.z() * 1.02) * 0.5)),
-                        static_cast<float>(radiusMeters * 1.35)));
-    cap->setColor(osg::Vec4(color.r(), color.g(), color.b(), std::min(0.92f, color.a() + 0.12f)));
+        new osg::Sphere(
+            osg::Vec3(0.0f, 0.0f, static_cast<float>(mastHeight + radiusMeters * 0.62)),
+            static_cast<float>(radiusMeters * 1.18)));
+    cap->setColor(osg::Vec4(
+        std::min(1.0f, color.r() + 0.14f),
+        std::min(1.0f, color.g() + 0.14f),
+        std::min(1.0f, color.b() + 0.14f),
+        0.96f));
     geode->addDrawable(cap.get());
 
     osg::StateSet* stateSet = geode->getOrCreateStateSet();
@@ -344,6 +379,8 @@ osg::ref_ptr<osg::Node> buildVerticalMarkerNode(const osgEarth::GeoPoint& point,
     stateSet->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
 
     xform->addChild(geode.get());
+    xform->addChild(buildRingGeode(radiusMeters * 2.15, 0.0, osg::Vec4(color.r(), color.g(), color.b(), 0.62f)).get());
+    xform->addChild(buildRingGeode(radiusMeters * 1.35, mastHeight * 0.72, osg::Vec4(color.r(), color.g(), color.b(), 0.55f)).get());
     return xform;
 }
 
@@ -398,8 +435,8 @@ osg::ref_ptr<osg::Image> tryLoadEarthTextureImage() {
 }
 
 osg::ref_ptr<osg::Image> buildProceduralEarthTexture() {
-    constexpr int width = 2048;
-    constexpr int height = 1024;
+    constexpr int width = 4096;
+    constexpr int height = 2048;
 
     osg::ref_ptr<osg::Image> image = new osg::Image;
     image->allocateImage(width, height, 1, GL_RGB, GL_UNSIGNED_BYTE);
@@ -639,6 +676,7 @@ OsgEarthWidget::OsgEarthWidget(QWidget* parent)
     setMouseTracking(true);
     setAutoFillBackground(false);
     setContextMenuPolicy(Qt::NoContextMenu);
+    setToolTip(QString());
 
     auto* frameTimer = new QTimer(this);
     frameTimer->setTimerType(Qt::PreciseTimer);
@@ -1193,6 +1231,85 @@ void OsgEarthWidget::focusOnAllRoutes() {
     focusOnPoint(center, rangeMeters);
 }
 
+void OsgEarthWidget::focusOnMissionArea() {
+    if (!m_initialized || m_initializing || !m_viewer.valid()) {
+        m_pendingMissionFocus = true;
+        return;
+    }
+
+    const auto* wgs84 = osgEarth::SpatialReference::get("wgs84");
+    if (wgs84 == nullptr) {
+        return;
+    }
+
+    bool hasAny = false;
+    double minLon = 0.0;
+    double maxLon = 0.0;
+    double minLat = 0.0;
+    double maxLat = 0.0;
+    double minAlt = 0.0;
+    double maxAlt = 0.0;
+    double threatRadiusMax = 0.0;
+
+    auto includePoint = [&](double lon, double lat, double alt) {
+        if (!hasAny) {
+            minLon = maxLon = lon;
+            minLat = maxLat = lat;
+            minAlt = maxAlt = alt;
+            hasAny = true;
+            return;
+        }
+        minLon = std::min(minLon, lon);
+        maxLon = std::max(maxLon, lon);
+        minLat = std::min(minLat, lat);
+        maxLat = std::max(maxLat, lat);
+        minAlt = std::min(minAlt, alt);
+        maxAlt = std::max(maxAlt, alt);
+    };
+
+    for (const auto& mv : m_missileVisuals) {
+        if (mv.hasStart && mv.startPoint.isValid()) {
+            includePoint(mv.startPoint.x(), mv.startPoint.y(), mv.startPoint.z());
+        }
+        if (mv.hasTarget && mv.targetPoint.isValid()) {
+            includePoint(mv.targetPoint.x(), mv.targetPoint.y(), mv.targetPoint.z());
+        }
+        for (const auto& p : mv.route) {
+            includePoint(p.x(), p.y(), p.z());
+        }
+    }
+
+    for (const auto& threat : m_threats) {
+        includePoint(threat.longitudeDeg, threat.latitudeDeg, (threat.minAltitudeMeters + threat.maxAltitudeMeters) * 0.5);
+        threatRadiusMax = std::max(threatRadiusMax, threat.radiusMeters);
+        const double lonRadiusDeg = threat.radiusMeters /
+            (kMetersPerLatDegree * std::max(0.1, std::cos(toRadians(threat.latitudeDeg))));
+        const double latRadiusDeg = threat.radiusMeters / kMetersPerLatDegree;
+        includePoint(threat.longitudeDeg - lonRadiusDeg, threat.latitudeDeg - latRadiusDeg, threat.minAltitudeMeters);
+        includePoint(threat.longitudeDeg + lonRadiusDeg, threat.latitudeDeg + latRadiusDeg, threat.maxAltitudeMeters);
+    }
+
+    if (!hasAny) {
+        return;
+    }
+
+    osgEarth::GeoPoint center(
+        wgs84,
+        (minLon + maxLon) * 0.5,
+        (minLat + maxLat) * 0.5,
+        (minAlt + maxAlt) * 0.5,
+        osgEarth::ALTMODE_ABSOLUTE);
+
+    const double meanLatRad = toRadians((minLat + maxLat) * 0.5);
+    const double metersPerLonDeg = kMetersPerLatDegree * std::max(0.1, std::cos(meanLatRad));
+    const double lonSpanMeters = std::abs(maxLon - minLon) * metersPerLonDeg;
+    const double latSpanMeters = std::abs(maxLat - minLat) * kMetersPerLatDegree;
+    const double horizontalSpan = std::max(lonSpanMeters, latSpanMeters) + threatRadiusMax * 1.4;
+    const double altitudeSpan = std::abs(maxAlt - minAlt);
+    const double rangeMeters = std::clamp(horizontalSpan * 1.5 + altitudeSpan * 4.0 + 70000.0, 120000.0, 2200000.0);
+    focusOnPoint(center, rangeMeters);
+}
+
 QPaintEngine* OsgEarthWidget::paintEngine() const {
     return nullptr;
 }
@@ -1235,14 +1352,18 @@ int qtToOsgKey(QKeyEvent* event) {
 
 void OsgEarthWidget::mousePressEvent(QMouseEvent* event) {
     if (m_graphicsWindow.valid()) {
+        m_mouseDragging = true;
         if (!hasFocus()) {
             setFocus(Qt::MouseFocusReason);
         }
-        const double dpr = devicePixelRatioF();
-        m_graphicsWindow->getEventQueue()->mouseButtonPress(
-            static_cast<float>(event->position().x() * dpr),
-            static_cast<float>(event->position().y() * dpr),
-            qtToOsgButton(event->button()));
+        float x = 0.0f;
+        float y = 0.0f;
+        if (mapWidgetToOsgEventCoords(event->position(), x, y)) {
+            m_graphicsWindow->getEventQueue()->mouseButtonPress(
+                x,
+                y,
+                qtToOsgButton(event->button()));
+        }
         event->accept();
         return;
     }
@@ -1251,11 +1372,15 @@ void OsgEarthWidget::mousePressEvent(QMouseEvent* event) {
 
 void OsgEarthWidget::mouseReleaseEvent(QMouseEvent* event) {
     if (m_graphicsWindow.valid()) {
-        const double dpr = devicePixelRatioF();
-        m_graphicsWindow->getEventQueue()->mouseButtonRelease(
-            static_cast<float>(event->position().x() * dpr),
-            static_cast<float>(event->position().y() * dpr),
-            qtToOsgButton(event->button()));
+        m_mouseDragging = false;
+        float x = 0.0f;
+        float y = 0.0f;
+        if (mapWidgetToOsgEventCoords(event->position(), x, y)) {
+            m_graphicsWindow->getEventQueue()->mouseButtonRelease(
+                x,
+                y,
+                qtToOsgButton(event->button()));
+        }
         event->accept();
         return;
     }
@@ -1264,14 +1389,31 @@ void OsgEarthWidget::mouseReleaseEvent(QMouseEvent* event) {
 
 void OsgEarthWidget::mouseMoveEvent(QMouseEvent* event) {
     if (m_graphicsWindow.valid()) {
-        const double dpr = devicePixelRatioF();
-        m_graphicsWindow->getEventQueue()->mouseMotion(
-            static_cast<float>(event->position().x() * dpr),
-            static_cast<float>(event->position().y() * dpr));
+        float x = 0.0f;
+        float y = 0.0f;
+        if (mapWidgetToOsgEventCoords(event->position(), x, y)) {
+            m_graphicsWindow->getEventQueue()->mouseMotion(x, y);
+        }
+
+        const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+        if (!m_mouseDragging && nowMs - m_lastHoverUpdateMs >= 70) {
+            m_lastHoverUpdateMs = nowMs;
+            updateHoverTooltip(event->position().toPoint());
+        }
+
         event->accept();
         return;
     }
     QWidget::mouseMoveEvent(event);
+}
+
+void OsgEarthWidget::leaveEvent(QEvent* event) {
+    m_mouseDragging = false;
+    if (!m_lastHoverTooltip.isEmpty()) {
+        QToolTip::hideText();
+        m_lastHoverTooltip.clear();
+    }
+    QWidget::leaveEvent(event);
 }
 
 void OsgEarthWidget::wheelEvent(QWheelEvent* event) {
@@ -1307,6 +1449,185 @@ void OsgEarthWidget::keyReleaseEvent(QKeyEvent* event) {
             static_cast<osgGA::GUIEventAdapter::KeySymbol>(qtToOsgKey(event)));
     }
     QWidget::keyReleaseEvent(event);
+}
+
+bool OsgEarthWidget::mapWidgetToOsgEventCoords(const QPointF& widgetPos, float& outX, float& outY) const {
+    const int widgetW = std::max(1, width());
+    const int widgetH = std::max(1, height());
+    const int viewportW = std::max(1, m_cachedViewportWidth);
+    const int viewportH = std::max(1, m_cachedViewportHeight);
+
+    outX = static_cast<float>(widgetPos.x() * static_cast<double>(viewportW) / static_cast<double>(widgetW));
+    outY = static_cast<float>(widgetPos.y() * static_cast<double>(viewportH) / static_cast<double>(widgetH));
+    return true;
+}
+
+bool OsgEarthWidget::projectGeoToScreen(const osgEarth::GeoPoint& point, osg::Vec2d& outScreenPx) const {
+    if (!m_viewer.valid() || !point.isValid()) {
+        return false;
+    }
+
+    osg::Camera* camera = m_viewer->getCamera();
+    if (camera == nullptr || camera->getViewport() == nullptr) {
+        return false;
+    }
+
+    osg::Vec3d world;
+    point.toWorld(world);
+
+    const osg::Matrixd mvp = camera->getViewMatrix() * camera->getProjectionMatrix();
+    const osg::Vec4d clip = osg::Vec4d(world.x(), world.y(), world.z(), 1.0) * mvp;
+    if (std::abs(clip.w()) < 1e-8) {
+        return false;
+    }
+
+    const double ndcX = clip.x() / clip.w();
+    const double ndcY = clip.y() / clip.w();
+    const osg::Viewport* vp = camera->getViewport();
+    const double xPx = vp->x() + (ndcX + 1.0) * 0.5 * vp->width();
+    const double yBottom = vp->y() + (ndcY + 1.0) * 0.5 * vp->height();
+    const double yTop = (vp->y() + vp->height()) - yBottom;
+
+    outScreenPx.set(xPx, yTop);
+    return std::isfinite(xPx) && std::isfinite(yTop);
+}
+
+void OsgEarthWidget::updateHoverTooltip(const QPoint& logicalPos) {
+    if (!m_viewer.valid()) {
+        return;
+    }
+
+    float mouseX = 0.0f;
+    float mouseY = 0.0f;
+    mapWidgetToOsgEventCoords(QPointF(logicalPos), mouseX, mouseY);
+
+    const osg::Vec2d mouse(static_cast<double>(mouseX), static_cast<double>(mouseY));
+    double bestDist2 = 28.0 * 28.0;
+    QString bestText;
+
+    auto considerPoint = [&](const osgEarth::GeoPoint& point, const QString& tip) {
+        osg::Vec2d screen;
+        if (!projectGeoToScreen(point, screen)) {
+            return;
+        }
+        const double dx = screen.x() - mouse.x();
+        const double dy = screen.y() - mouse.y();
+        const double dist2 = dx * dx + dy * dy;
+        if (dist2 < bestDist2) {
+            bestDist2 = dist2;
+            bestText = tip;
+        }
+    };
+
+    for (std::size_t i = 0; i < m_missileVisuals.size(); ++i) {
+        const auto& mv = m_missileVisuals[i];
+        const QString missileName = i < m_missileNames.size()
+            ? QString::fromStdString(m_missileNames[i])
+            : QStringLiteral("导弹-%1").arg(static_cast<int>(i + 1));
+
+        if (mv.hasStart && mv.startPoint.isValid()) {
+            considerPoint(
+                mv.startPoint,
+                QStringLiteral("%1\n类型: 发射点\n经纬: %2, %3\n高度: %4 m")
+                    .arg(missileName)
+                    .arg(mv.startPoint.x(), 0, 'f', 4)
+                    .arg(mv.startPoint.y(), 0, 'f', 4)
+                    .arg(mv.startPoint.z(), 0, 'f', 0));
+        }
+
+        if (mv.hasTarget && mv.targetPoint.isValid()) {
+            considerPoint(
+                mv.targetPoint,
+                QStringLiteral("%1\n类型: 打击目标\n经纬: %2, %3\n高度: %4 m")
+                    .arg(missileName)
+                    .arg(mv.targetPoint.x(), 0, 'f', 4)
+                    .arg(mv.targetPoint.y(), 0, 'f', 4)
+                    .arg(mv.targetPoint.z(), 0, 'f', 0));
+        }
+
+        if (mv.hasMissile && mv.missilePoint.isValid()) {
+            considerPoint(
+                mv.missilePoint,
+                QStringLiteral("%1\n类型: 在途导弹\n经纬: %2, %3\n高度: %4 m\n速度: %5 m/s")
+                    .arg(missileName)
+                    .arg(mv.missilePoint.x(), 0, 'f', 4)
+                    .arg(mv.missilePoint.y(), 0, 'f', 4)
+                    .arg(mv.missilePoint.z(), 0, 'f', 0)
+                    .arg(mv.speedMetersPerSecond, 0, 'f', 1));
+        }
+    }
+
+    for (std::size_t i = 0; i < m_threats.size(); ++i) {
+        const auto& threat = m_threats[i];
+        double groundMeters = 0.0;
+        const bool hasGround = sampleTerrainElevationMeters(threat.longitudeDeg, threat.latitudeDeg, groundMeters);
+        const double centerAlt = (threat.minAltitudeMeters + threat.maxAltitudeMeters) * 0.5 + (hasGround ? groundMeters : 0.0);
+        const osgEarth::GeoPoint center(
+            osgEarth::SpatialReference::get("wgs84"),
+            threat.longitudeDeg,
+            threat.latitudeDeg,
+            centerAlt,
+            osgEarth::ALTMODE_ABSOLUTE);
+
+        osg::Vec2d centerScreen;
+        if (!projectGeoToScreen(center, centerScreen)) {
+            continue;
+        }
+
+        const double metersPerLon = kMetersPerLatDegree * std::max(0.1, std::cos(toRadians(threat.latitudeDeg)));
+        const double deltaLon = threat.radiusMeters / std::max(1.0, metersPerLon);
+        osgEarth::GeoPoint edge(
+            osgEarth::SpatialReference::get("wgs84"),
+            threat.longitudeDeg + deltaLon,
+            threat.latitudeDeg,
+            centerAlt,
+            osgEarth::ALTMODE_ABSOLUTE);
+        osg::Vec2d edgeScreen;
+        if (!projectGeoToScreen(edge, edgeScreen)) {
+            continue;
+        }
+
+        const double radiusPx = std::max(14.0, std::sqrt((edgeScreen.x() - centerScreen.x()) * (edgeScreen.x() - centerScreen.x()) +
+                                                         (edgeScreen.y() - centerScreen.y()) * (edgeScreen.y() - centerScreen.y())));
+        const double dx = centerScreen.x() - mouse.x();
+        const double dy = centerScreen.y() - mouse.y();
+        const double dist2 = dx * dx + dy * dy;
+        if (dist2 > radiusPx * radiusPx) {
+            continue;
+        }
+
+        const double score = dist2 / std::max(1.0, radiusPx * radiusPx);
+        if (score > bestDist2 / (28.0 * 28.0)) {
+            continue;
+        }
+
+        const QString threatName = threat.name.empty()
+            ? QStringLiteral("威胁区-%1").arg(static_cast<int>(i + 1))
+            : QString::fromStdString(threat.name);
+        bestDist2 = dist2;
+        bestText = QStringLiteral("%1\n类型: 威胁空域\n中心: %2, %3\n半径: %4 m\n高度: %5 - %6 m")
+            .arg(threatName)
+            .arg(threat.longitudeDeg, 0, 'f', 4)
+            .arg(threat.latitudeDeg, 0, 'f', 4)
+            .arg(threat.radiusMeters, 0, 'f', 0)
+            .arg(threat.minAltitudeMeters, 0, 'f', 0)
+            .arg(threat.maxAltitudeMeters, 0, 'f', 0);
+    }
+
+    if (bestText.isEmpty()) {
+        if (!m_lastHoverTooltip.isEmpty()) {
+            QToolTip::hideText();
+            m_lastHoverTooltip.clear();
+        }
+        return;
+    }
+
+    if (bestText == m_lastHoverTooltip) {
+        return;
+    }
+
+    m_lastHoverTooltip = bestText;
+    QToolTip::showText(mapToGlobal(logicalPos + QPoint(16, 16)), bestText, this);
 }
 
 void OsgEarthWidget::syncGraphicsWindowSize() {
@@ -1392,6 +1713,13 @@ void OsgEarthWidget::initializeViewer() {
     m_viewer->setSceneData(m_root.get());
     updateCameraManipulator();
 
+    if (m_pendingMissionFocus) {
+        m_pendingMissionFocus = false;
+        QTimer::singleShot(0, this, [this]() {
+            focusOnMissionArea();
+        });
+    }
+
     m_cachedViewportWidth = 0;
     m_cachedViewportHeight = 0;
     syncGraphicsWindowSize();
@@ -1454,6 +1782,7 @@ void OsgEarthWidget::ensureSceneCreated() {
     osg::StateSet* overlayState = m_overlayGroup->getOrCreateStateSet();
     overlayState->setMode(GL_LIGHTING, osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE);
     overlayState->setMode(GL_BLEND, osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+    overlayState->setMode(GL_LINE_SMOOTH, osg::StateAttribute::ON);
     overlayState->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE);
     overlayState->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
 
@@ -1661,6 +1990,7 @@ void OsgEarthWidget::rebuildFallbackGlobe() {
             tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
             tex->setWrap(osg::Texture::WRAP_S, osg::Texture::REPEAT);
             tex->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
+            tex->setMaxAnisotropy(8.0f);
             globeState->setTextureAttributeAndModes(0, tex.get(), osg::StateAttribute::ON);
         }
     }
@@ -1901,45 +2231,19 @@ void OsgEarthWidget::rebuildMissileRouteGeometry(int index) {
         return;
     }
 
-    const std::vector<osgEarth::GeoPoint> renderRoute = smoothPolylineForRender(mv.route, 0.2, 7);
-
-    double minAltitude = renderRoute.front().z();
-    double maxAltitude = renderRoute.front().z();
-    for (const auto& point : renderRoute) {
-        minAltitude = std::min(minAltitude, point.z());
-        maxAltitude = std::max(maxAltitude, point.z());
-    }
-    const double altitudeSpan = std::max(1.0, maxAltitude - minAltitude);
+    const std::vector<osgEarth::GeoPoint>& renderRoute = mv.route;
 
     osg::ref_ptr<osg::Vec3Array> vertices = new osg::Vec3Array;
     vertices->reserve(renderRoute.size());
 
-    osg::ref_ptr<osg::Vec4Array> routeColors = new osg::Vec4Array;
-    routeColors->reserve(renderRoute.size());
-
     osg::ref_ptr<osg::Vec3Array> shadowVertices = new osg::Vec3Array;
     shadowVertices->reserve(renderRoute.size());
-
-    osg::ref_ptr<osg::Vec3Array> altitudeVertices = new osg::Vec3Array;
-    osg::ref_ptr<osg::Vec4Array> altitudeColors = new osg::Vec4Array;
-
-    const std::size_t sampleStep = std::max<std::size_t>(1, renderRoute.size() / 10);
-
-    const osg::Vec4 baseColor = mv.color;
-    const osg::Vec4 brightColor(
-        std::min(1.0f, baseColor.r() + 0.3f),
-        std::min(1.0f, baseColor.g() + 0.3f),
-        std::min(1.0f, baseColor.b() + 0.3f),
-        1.0f);
 
     for (std::size_t i = 0; i < renderRoute.size(); ++i) {
         const auto& point = renderRoute[i];
         osg::Vec3d world;
         point.toWorld(world);
         vertices->push_back(world);
-
-        const double altitudeT = clamp01((point.z() - minAltitude) / altitudeSpan);
-        routeColors->push_back(mixColor(baseColor, brightColor, altitudeT));
 
         const auto* wgs84 = point.getSRS() != nullptr ? point.getSRS() : osgEarth::SpatialReference::get("wgs84");
         if (wgs84 == nullptr) {
@@ -1950,20 +2254,13 @@ void OsgEarthWidget::rebuildMissileRouteGeometry(int index) {
         osg::Vec3d shadowWorld;
         shadowPoint.toWorld(shadowWorld);
         shadowVertices->push_back(shadowWorld);
-
-        if (i == 0 || i + 1 == renderRoute.size() || (i % sampleStep) == 0) {
-            altitudeVertices->push_back(shadowWorld);
-            altitudeVertices->push_back(world);
-            altitudeColors->push_back(osg::Vec4(baseColor.r() * 0.5f, baseColor.g() * 0.5f, baseColor.b() * 0.5f, 0.20f));
-            altitudeColors->push_back(osg::Vec4(baseColor.r(), baseColor.g(), baseColor.b(), 0.85f));
-        }
     }
 
     osg::ref_ptr<osg::Geometry> shadowLine = new osg::Geometry;
     shadowLine->setVertexArray(shadowVertices.get());
     shadowLine->addPrimitiveSet(new osg::DrawArrays(GL_LINE_STRIP, 0, static_cast<GLsizei>(shadowVertices->size())));
     osg::ref_ptr<osg::Vec4Array> shadowColors = new osg::Vec4Array;
-    shadowColors->push_back(osg::Vec4(baseColor.r() * 0.3f, baseColor.g() * 0.3f, baseColor.b() * 0.3f, 0.35f));
+    shadowColors->push_back(osg::Vec4(0.12f, 0.12f, 0.12f, 0.36f));
     shadowLine->setColorArray(shadowColors.get(), osg::Array::BIND_OVERALL);
     osg::StateSet* shadowState = shadowLine->getOrCreateStateSet();
     shadowState->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
@@ -1972,47 +2269,21 @@ void OsgEarthWidget::rebuildMissileRouteGeometry(int index) {
     osg::ref_ptr<osg::LineWidth> shadowWidth = new osg::LineWidth(3.0f);
     shadowState->setAttributeAndModes(shadowWidth.get(), osg::StateAttribute::ON);
 
-    osg::ref_ptr<osg::Geometry> routeLine = new osg::Geometry;
-    routeLine->setVertexArray(vertices.get());
-    routeLine->setColorArray(routeColors.get(), osg::Array::BIND_PER_VERTEX);
-    routeLine->addPrimitiveSet(new osg::DrawArrays(GL_LINE_STRIP, 0, static_cast<GLsizei>(vertices->size())));
-    osg::StateSet* routeState = routeLine->getOrCreateStateSet();
-    routeState->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
-    routeState->setMode(GL_BLEND, osg::StateAttribute::ON);
-    routeState->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
-    osg::ref_ptr<osg::LineWidth> routeWidth = new osg::LineWidth(3.8f);
-    routeState->setAttributeAndModes(routeWidth.get(), osg::StateAttribute::ON);
-
     osg::ref_ptr<osg::Geometry> routeBaseLine = new osg::Geometry;
     routeBaseLine->setVertexArray(vertices.get());
     routeBaseLine->addPrimitiveSet(new osg::DrawArrays(GL_LINE_STRIP, 0, static_cast<GLsizei>(vertices->size())));
     osg::ref_ptr<osg::Vec4Array> routeBaseColors = new osg::Vec4Array;
-    routeBaseColors->push_back(osg::Vec4(0.88f, 0.94f, 1.0f, 0.24f));
+    routeBaseColors->push_back(osg::Vec4(0.36f, 0.37f, 0.40f, 0.84f));
     routeBaseLine->setColorArray(routeBaseColors.get(), osg::Array::BIND_OVERALL);
     osg::StateSet* routeBaseState = routeBaseLine->getOrCreateStateSet();
     routeBaseState->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
     routeBaseState->setMode(GL_BLEND, osg::StateAttribute::ON);
     routeBaseState->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
-    osg::ref_ptr<osg::LineWidth> routeBaseWidth = new osg::LineWidth(8.0f);
+    osg::ref_ptr<osg::LineWidth> routeBaseWidth = new osg::LineWidth(4.6f);
     routeBaseState->setAttributeAndModes(routeBaseWidth.get(), osg::StateAttribute::ON);
-
-    osg::ref_ptr<osg::Geometry> altitudePosts = new osg::Geometry;
-    altitudePosts->setVertexArray(altitudeVertices.get());
-    altitudePosts->setColorArray(altitudeColors.get(), osg::Array::BIND_PER_VERTEX);
-    altitudePosts->addPrimitiveSet(new osg::DrawArrays(GL_LINES, 0, static_cast<GLsizei>(altitudeVertices->size())));
-    osg::StateSet* postsState = altitudePosts->getOrCreateStateSet();
-    postsState->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
-    postsState->setMode(GL_BLEND, osg::StateAttribute::ON);
-    postsState->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
-    osg::ref_ptr<osg::LineWidth> postsWidth = new osg::LineWidth(2.0f);
-    postsState->setAttributeAndModes(postsWidth.get(), osg::StateAttribute::ON);
 
     mv.routeGeode->addDrawable(shadowLine.get());
     mv.routeGeode->addDrawable(routeBaseLine.get());
-    mv.routeGeode->addDrawable(routeLine.get());
-    if (!altitudeVertices->empty()) {
-        mv.routeGeode->addDrawable(altitudePosts.get());
-    }
 }
 
 void OsgEarthWidget::rebuildMissileTrailGeometry(int index) {
@@ -2029,7 +2300,7 @@ void OsgEarthWidget::rebuildMissileTrailGeometry(int index) {
         return;
     }
 
-    const std::vector<osgEarth::GeoPoint> renderTrail = smoothPolylineForRender(mv.trail, 0.2, 7);
+    const std::vector<osgEarth::GeoPoint>& renderTrail = mv.trail;
 
     osg::ref_ptr<osg::Vec3Array> vertices = new osg::Vec3Array;
     vertices->reserve(renderTrail.size());
@@ -2040,23 +2311,33 @@ void OsgEarthWidget::rebuildMissileTrailGeometry(int index) {
         vertices->push_back(world);
     }
 
+    osg::ref_ptr<osg::Geometry> glow = new osg::Geometry;
+    glow->setVertexArray(vertices.get());
+    glow->addPrimitiveSet(new osg::DrawArrays(GL_LINE_STRIP, 0, static_cast<GLsizei>(vertices->size())));
+    osg::ref_ptr<osg::Vec4Array> glowColors = new osg::Vec4Array;
+    glowColors->push_back(osg::Vec4(mv.color.r(), mv.color.g(), mv.color.b(), 0.24f));
+    glow->setColorArray(glowColors.get(), osg::Array::BIND_OVERALL);
+    osg::StateSet* glowState = glow->getOrCreateStateSet();
+    glowState->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+    glowState->setMode(GL_BLEND, osg::StateAttribute::ON);
+    glowState->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
+    osg::ref_ptr<osg::LineWidth> glowWidth = new osg::LineWidth(9.2f);
+    glowState->setAttributeAndModes(glowWidth.get(), osg::StateAttribute::ON);
+
     osg::ref_ptr<osg::Geometry> line = new osg::Geometry;
     line->setVertexArray(vertices.get());
     line->addPrimitiveSet(new osg::DrawArrays(GL_LINE_STRIP, 0, static_cast<GLsizei>(vertices->size())));
-
     osg::ref_ptr<osg::Vec4Array> colors = new osg::Vec4Array;
-    const osg::Vec4 trailColor(0.86f, 0.95f, 1.0f, 0.96f);
-    colors->push_back(trailColor);
+    colors->push_back(osg::Vec4(mv.color.r(), mv.color.g(), mv.color.b(), 0.98f));
     line->setColorArray(colors.get(), osg::Array::BIND_OVERALL);
-
     osg::StateSet* stateSet = line->getOrCreateStateSet();
     stateSet->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
     stateSet->setMode(GL_BLEND, osg::StateAttribute::ON);
     stateSet->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
-
-    osg::ref_ptr<osg::LineWidth> width = new osg::LineWidth(6.6f);
+    osg::ref_ptr<osg::LineWidth> width = new osg::LineWidth(6.2f);
     stateSet->setAttributeAndModes(width.get(), osg::StateAttribute::ON);
 
+    mv.trailGeode->addDrawable(glow.get());
     mv.trailGeode->addDrawable(line.get());
 }
 

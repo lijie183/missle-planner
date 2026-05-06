@@ -112,6 +112,7 @@ public:
     void clearMissileImpact(int index);
     void setFollowMissile(int index, bool enabled);
     void focusOnAllRoutes();
+    void focusOnMissionArea();
 
 protected:
     QPaintEngine* paintEngine() const override;
@@ -122,6 +123,7 @@ protected:
     void mousePressEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
+    void leaveEvent(QEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
     void keyReleaseEvent(QKeyEvent* event) override;
@@ -147,9 +149,13 @@ private:
     void rebuildMissileRouteGeometry(int index);
     void rebuildMissileTrailGeometry(int index);
     void rebuildMissileMarker(int index);
+    bool mapWidgetToOsgEventCoords(const QPointF& widgetPos, float& outX, float& outY) const;
+    bool projectGeoToScreen(const osgEarth::GeoPoint& point, osg::Vec2d& outScreenPx) const;
+    void updateHoverTooltip(const QPoint& logicalPos);
 
     bool m_initialized = false;
     bool m_initializing = false;
+    bool m_pendingMissionFocus = false;
 
     osg::ref_ptr<osgViewer::Viewer> m_viewer;
     osg::ref_ptr<osgViewer::GraphicsWindow> m_graphicsWindow;
@@ -188,6 +194,9 @@ private:
     GlobeMode m_globeMode = GlobeMode::Realistic;
     int m_followTickCounter = 0;
     int m_activeMissileIndex = -1;
+    qint64 m_lastHoverUpdateMs = 0;
+    bool m_mouseDragging = false;
+    QString m_lastHoverTooltip;
 
     std::vector<mission::ThreatZone> m_threats;
     std::vector<osgEarth::GeoPoint> m_route;
