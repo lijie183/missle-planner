@@ -53,14 +53,35 @@ double smoothstep(double t) {
     return x * x * (3.0 - 2.0 * x);
 }
 
+double computeClimbOffset(double progress, double peakMeters) {
+    if (peakMeters <= 1e-6) {
+        return 0.0;
+    }
+    if (progress <= 0.26) {
+        return peakMeters * smoothstep(progress / 0.26);
+    }
+    if (progress <= 0.62) {
+        const double t = (progress - 0.26) / 0.36;
+        return lerp(peakMeters, peakMeters * 0.86, smoothstep(t));
+    }
+    if (progress <= 0.82) {
+        const double t = (progress - 0.62) / 0.20;
+        return lerp(peakMeters * 0.86, peakMeters * 0.36, smoothstep(t));
+    }
+    const double t = std::clamp((progress - 0.82) / 0.18, 0.0, 1.0);
+    return lerp(peakMeters * 0.36, 0.0, smoothstep(t));
+}
+
 }  // namespace
 
 namespace mission {
 
-void MissileSim::setRoute(const std::vector<osgEarth::GeoPoint>& route) {
+void MissileSim::setRoute(const std::vector<osgEarth::GeoPoint>& route,
+                           double maxAltitudeMeters) {
     m_route = route;
     m_segmentLengths.clear();
     m_cumulativeLengths.clear();
+    m_maxAltitudeMeters = maxAltitudeMeters;
 
     m_state = {};
 
@@ -90,9 +111,16 @@ void MissileSim::setRoute(const std::vector<osgEarth::GeoPoint>& route) {
         m_route.front().x(), m_route.front().y(), 0.0,
         m_route.back().x(), m_route.back().y(), 0.0) / 1000.0);
 
-    // 远程任务抬高弹道顶点，近程任务仍保留可视爬升。
     const double basePeak = 12000.0 + horizontalRangeKm * 900.0 + spanAlt * 0.12;
     m_launchClimbPeakMeters = std::clamp(basePeak, 10000.0, 95000.0);
+
+    if (m_maxAltitudeMeters > 0.0) {
+        const double baseAltFloor = std::min(startAlt, endAlt);
+        const double maxAllowedClimb = m_maxAltitudeMeters - baseAltFloor;
+        if (maxAllowedClimb > 0.0) {
+            m_launchClimbPeakMeters = std::min(m_launchClimbPeakMeters, maxAllowedClimb);
+        }
+    }
 }
 
 bool MissileSim::hasRoute() const {
@@ -110,6 +138,15 @@ void MissileSim::start(double speedMetersPerSecond) {
 
     const double speedFactor = std::clamp(m_state.speedMetersPerSecond / 900.0, 0.45, 1.9);
     m_launchClimbPeakMeters = std::clamp(m_launchClimbPeakMeters * (0.8 + 0.6 * speedFactor), 9000.0, 120000.0);
+
+    if (m_maxAltitudeMeters > 0.0 && m_route.size() >= 2) {
+        const double baseAltFloor = std::min(m_route.front().z(), m_route.back().z());
+        const double maxAllowedClimb = m_maxAltitudeMeters - baseAltFloor;
+        if (maxAllowedClimb > 0.0) {
+            m_launchClimbPeakMeters = std::min(m_launchClimbPeakMeters, maxAllowedClimb);
+        }
+    }
+
     m_state.traveledMeters = 0.0;
     m_state.elapsedSeconds = 0.0;
     m_state.phase = Phase::Boost;
@@ -279,12 +316,119 @@ osgEarth::GeoPoint MissileSim::sampleByDistance(double traveledMeters) const {
 
     const double baseAlt = lerp(a.z(), b.z(), t);
 
+    const double progress = m_state.totalMeters > 1e-6
+                                ? std::clamp(traveledMeters / m_state.totalMeters, 0.0, 1.0)
+                                : 0.0;
+    const double climbOffset = climbOffsetForProgress(progress);
+    double finalAlt = baseAlt + climbOffset;
+
+    if (m_maxAltitudeMeters > 0.0) {
+        finalAlt = std::min(finalAlt, m_maxAltitudeMeters);
+    }
+
     return osgEarth::GeoPoint(
         srs,
         lerp(a.x(), b.x(), t),
         lerp(a.y(), b.y(), t),
-        baseAlt,
+        finalAlt,
         osgEarth::ALTMODE_ABSOLUTE);
+}
+
+std::vector<osgEarth::GeoPoint> MissileSim::generateBallisticRoute(
+    const std::vector<osgEarth::GeoPoint>& route,
+    double speedMetersPerSecond,
+    double maxAltitudeMeters,
+    double sampleIntervalMeters) const
+{
+    if (route.size() < 2) {
+        return route;
+    }
+
+    std::vector<double> cumulativeLengths;
+    cumulativeLengths.reserve(route.size());
+    cumulativeLengths.push_back(0.0);
+
+    double totalMeters = 0.0;
+    for (std::size_t i = 1; i < route.size(); ++i) {
+        const double seg = approx3dDistanceMeters(route[i - 1], route[i]);
+        totalMeters += seg;
+        cumulativeLengths.push_back(totalMeters);
+    }
+
+    if (totalMeters < 1.0) {
+        return route;
+    }
+
+    const double spanAlt = std::abs(route.back().z() - route.front().z());
+    const double horizontalRangeKm = std::max(1.0, approx3dDistanceMeters(
+        route.front().x(), route.front().y(), 0.0,
+        route.back().x(), route.back().y(), 0.0) / 1000.0);
+
+    double peakMeters = 12000.0 + horizontalRangeKm * 900.0 + spanAlt * 0.12;
+    peakMeters = std::clamp(peakMeters, 10000.0, 95000.0);
+
+    const double safeSpeed = std::max(1.0, speedMetersPerSecond);
+    const double speedFactor = std::clamp(safeSpeed / 900.0, 0.45, 1.9);
+    peakMeters = std::clamp(peakMeters * (0.8 + 0.6 * speedFactor), 9000.0, 120000.0);
+
+    if (maxAltitudeMeters > 0.0) {
+        const double baseAltFloor = std::min(route.front().z(), route.back().z());
+        const double maxAllowedClimb = maxAltitudeMeters - baseAltFloor;
+        if (maxAllowedClimb > 0.0) {
+            peakMeters = std::min(peakMeters, maxAllowedClimb);
+        }
+    }
+
+    const auto* srs = route.front().getSRS();
+    if (srs == nullptr) {
+        srs = osgEarth::SpatialReference::get("wgs84");
+    }
+
+    const int sampleCount = std::max(2, static_cast<int>(std::ceil(totalMeters / sampleIntervalMeters)));
+    std::vector<osgEarth::GeoPoint> result;
+    result.reserve(static_cast<std::size_t>(sampleCount) + 1);
+
+    for (int i = 0; i <= sampleCount; ++i) {
+        const double frac = static_cast<double>(i) / static_cast<double>(sampleCount);
+        const double traveled = frac * totalMeters;
+
+        auto upperIt = std::lower_bound(cumulativeLengths.begin(), cumulativeLengths.end(), traveled);
+        if (upperIt == cumulativeLengths.end()) {
+            upperIt = cumulativeLengths.end() - 1;
+        }
+
+        const std::size_t upperIndex = static_cast<std::size_t>(upperIt - cumulativeLengths.begin());
+        if (upperIndex == 0) {
+            result.push_back(route.front());
+            continue;
+        }
+
+        const std::size_t lowerIndex = upperIndex - 1;
+        const double lowerDist = cumulativeLengths[lowerIndex];
+        const double upperDist = cumulativeLengths[upperIndex];
+        const double segmentLen = std::max(1e-6, upperDist - lowerDist);
+        const double t = std::clamp((traveled - lowerDist) / segmentLen, 0.0, 1.0);
+
+        const osgEarth::GeoPoint& a = route[lowerIndex];
+        const osgEarth::GeoPoint& b = route[upperIndex];
+
+        const double baseAlt = lerp(a.z(), b.z(), t);
+        const double climbOffset = computeClimbOffset(frac, peakMeters);
+        double finalAlt = baseAlt + climbOffset;
+
+        if (maxAltitudeMeters > 0.0) {
+            finalAlt = std::min(finalAlt, maxAltitudeMeters);
+        }
+
+        result.emplace_back(
+            srs,
+            lerp(a.x(), b.x(), t),
+            lerp(a.y(), b.y(), t),
+            finalAlt,
+            osgEarth::ALTMODE_ABSOLUTE);
+    }
+
+    return result;
 }
 
 }  // namespace mission

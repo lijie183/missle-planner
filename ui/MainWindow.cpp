@@ -437,24 +437,15 @@ void MainWindow::onPlanRoute() {
     }
 
     if (m_planButton != nullptr) {
-        m_planButton->setEnabled(false);
-        m_planButton->setText(QStringLiteral("规划中..."));
+        m_planButton->startProgress(QStringLiteral("规划中..."));
     }
 
     m_planProgress.store(0);
-    m_planProgressDialog = new QProgressDialog(QStringLiteral("正在规划航路方案..."), QString(), 0, 100, this);
-    m_planProgressDialog->setWindowTitle(QStringLiteral("航路规划进度"));
-    m_planProgressDialog->setWindowModality(Qt::WindowModal);
-    m_planProgressDialog->setMinimumDuration(0);
-    m_planProgressDialog->setCancelButton(nullptr);
-    m_planProgressDialog->setValue(0);
-    m_planProgressDialog->setAutoClose(false);
-    m_planProgressDialog->setAutoReset(false);
 
     m_planProgressTimer.disconnect();
     connect(&m_planProgressTimer, &QTimer::timeout, this, [this]() {
-        if (m_planProgressDialog != nullptr) {
-            m_planProgressDialog->setValue(m_planProgress.load());
+        if (m_planButton != nullptr) {
+            m_planButton->setProgress(m_planProgress.load());
         }
     });
     m_planProgressTimer.start(100);
@@ -604,16 +595,9 @@ void MainWindow::onPlanRoute() {
 
 void MainWindow::onPlanRouteFinished() {
     m_planProgressTimer.stop();
-    if (m_planProgressDialog != nullptr) {
-        m_planProgressDialog->setValue(100);
-        m_planProgressDialog->close();
-        delete m_planProgressDialog;
-        m_planProgressDialog = nullptr;
-    }
-
     if (m_planButton != nullptr) {
-        m_planButton->setEnabled(true);
-        m_planButton->setText(QStringLiteral("规划生成航路方案"));
+        m_planButton->setProgress(100);
+        m_planButton->stopProgress();
     }
 
     PlanWorkResult result;
@@ -655,10 +639,16 @@ void MainWindow::onPlanRouteFinished() {
                 osgEarth::GeoPoint targetPoint(
                     wgs84, tc.lonDeg, tc.latDeg, tc.altMeters, osgEarth::ALTMODE_ABSOLUTE);
                 m_earthWidget->setMissileTargetPoint(assign.missileIndex, targetPoint);
-                m_earthWidget->setMissileRoute(assign.missileIndex, assign.planResult.route);
 
                 m_missileRuntimes[assign.missileIndex].route = assign.planResult.route;
                 m_missileRuntimes[assign.missileIndex].assignedTargetIndex = assign.targetIndex;
+
+                const double missileSpeed = m_missileConfigs[assign.missileIndex].speedMps;
+                const double missileMaxAlt = m_missileConfigs[assign.missileIndex].maxAltitudeMeters;
+                mission::MissileSim ballisticSim;
+                auto ballisticRoute = ballisticSim.generateBallisticRoute(
+                    assign.planResult.route, missileSpeed, missileMaxAlt);
+                m_earthWidget->setMissileRoute(assign.missileIndex, ballisticRoute);
             }
         }
 
@@ -702,7 +692,7 @@ void MainWindow::onStartSimulation() {
             continue;
         }
 
-        rt.sim.setRoute(rt.route);
+        rt.sim.setRoute(rt.route, rt.config.maxAltitudeMeters);
         rt.sim.start(rt.config.speedMps);
         rt.active = rt.sim.isRunning();
         if (rt.active) {
@@ -973,7 +963,13 @@ void MainWindow::onDynamicReplan() {
                 osgEarth::GeoPoint targetPoint(
                     wgs84, tc.lonDeg, tc.latDeg, tc.altMeters, osgEarth::ALTMODE_ABSOLUTE);
                 m_earthWidget->setMissileTargetPoint(assign.missileIndex, targetPoint);
-                m_earthWidget->setMissileRoute(assign.missileIndex, assign.planResult.route);
+
+                const double missileSpeed = m_missileConfigs[assign.missileIndex].speedMps;
+                const double missileMaxAlt = m_missileConfigs[assign.missileIndex].maxAltitudeMeters;
+                mission::MissileSim ballisticSim;
+                auto ballisticRoute = ballisticSim.generateBallisticRoute(
+                    assign.planResult.route, missileSpeed, missileMaxAlt);
+                m_earthWidget->setMissileRoute(assign.missileIndex, ballisticRoute);
                 m_earthWidget->clearMissileImpact(assign.missileIndex);
             }
         }
@@ -1028,6 +1024,7 @@ void MainWindow::buildUi() {
         "QPushButton { background: #1c79b4; border: 1px solid #3d97cf; border-radius: 5px; padding: 6px 10px; color: #f1f9ff; font-weight: 600; }"
         "QPushButton:hover { background: #2591d4; }"
         "QPushButton:pressed { background: #17689b; }"
+        "#planButton { background: transparent; border: none; padding: 0px; }"
         "QDoubleSpinBox, QSpinBox, QComboBox, QListWidget, QTableWidget, QLineEdit { background: #0f1b28; border: 1px solid #375571; border-radius: 4px; color: #e8f3ff; selection-background-color: #2e78ad; }"
         "QListWidget::item { padding: 5px 4px; border-bottom: 1px solid rgba(72, 107, 139, 0.35); }"
         "QListWidget::item:selected { background: #1f5f8f; color: #f4faff; }"
@@ -1149,7 +1146,8 @@ void MainWindow::buildUi() {
 
     auto* actionGroup = new QGroupBox(QStringLiteral("航路规划与验证"), commandPanel);
     auto* actionLayout = new QVBoxLayout(actionGroup);
-    m_planButton = new QPushButton(QStringLiteral("规划生成航路方案"), actionGroup);
+    m_planButton = new WaveProgressButton(QStringLiteral("规划生成航路方案"), actionGroup);
+    m_planButton->setObjectName(QStringLiteral("planButton"));
     auto* simButton = new QPushButton(QStringLiteral("开始多弹三维推演"), actionGroup);
 
     auto* speedLayout = new QFormLayout;

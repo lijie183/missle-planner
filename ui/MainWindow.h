@@ -3,7 +3,6 @@
 #include <QMainWindow>
 #include <QElapsedTimer>
 #include <QTimer>
-#include <QProgressDialog>
 
 #include <atomic>
 #include <map>
@@ -18,6 +17,7 @@
 #include "core/MissionTypes.h"
 #include "core/MultiMissilePlanner.h"
 #include "sim/MissileSim.h"
+#include "ui/WaveProgressButton.h"
 
 class QLabel;
 class QListWidget;
@@ -190,8 +190,7 @@ private:
     QElapsedTimer m_tickClock;
     qint64 m_lastTickMs = 0;
 
-    QPushButton* m_planButton = nullptr;
-    QProgressDialog* m_planProgressDialog = nullptr;
+    WaveProgressButton* m_planButton = nullptr;
     QTimer m_planProgressTimer;
     std::thread m_planThread;
     std::atomic<bool> m_planRunning{false};

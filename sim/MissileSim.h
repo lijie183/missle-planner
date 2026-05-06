@@ -30,7 +30,8 @@ public:
         Phase phase = Phase::Idle;
     };
 
-    void setRoute(const std::vector<osgEarth::GeoPoint>& route);
+    void setRoute(const std::vector<osgEarth::GeoPoint>& route,
+                  double maxAltitudeMeters = 0.0);
     bool hasRoute() const;
 
     void start(double speedMetersPerSecond);
@@ -40,6 +41,12 @@ public:
     const State& state() const;
 
     bool update(double deltaSeconds, osgEarth::GeoPoint& outPosition);
+
+    std::vector<osgEarth::GeoPoint> generateBallisticRoute(
+        const std::vector<osgEarth::GeoPoint>& route,
+        double speedMetersPerSecond,
+        double maxAltitudeMeters = 0.0,
+        double sampleIntervalMeters = 600.0) const;
 
 private:
     Phase phaseForProgress(double progress) const;
@@ -52,6 +59,7 @@ private:
     std::vector<double> m_cumulativeLengths;
     State m_state;
     double m_launchClimbPeakMeters = 0.0;
+    double m_maxAltitudeMeters = 0.0;
 };
 
 }  // namespace mission
