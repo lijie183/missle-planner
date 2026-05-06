@@ -8,6 +8,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDateTime>
+#include <QAbstractSpinBox>
 #include <QDoubleSpinBox>
 #include <QFont>
 #include <QFormLayout>
@@ -19,6 +20,7 @@
 #include <QDir>
 #include <QFileDialog>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
@@ -52,7 +54,38 @@ QDoubleSpinBox* createSpinBox(
     spin->setValue(value);
     spin->setDecimals(decimals);
     spin->setSingleStep(step);
+    spin->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
     return spin;
+}
+
+void applyUniformInputHeight(QWidget* widget, int height) {
+    if (widget == nullptr) {
+        return;
+    }
+    widget->setFixedHeight(height);
+}
+
+void applyUniformTextInputHeight(QLineEdit* edit, int height) {
+    if (edit == nullptr) {
+        return;
+    }
+    edit->setFixedHeight(height);
+    edit->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
+}
+
+void applyUniformSpinBoxHeight(QAbstractSpinBox* spin, int height) {
+    if (spin == nullptr) {
+        return;
+    }
+    spin->setFixedHeight(height);
+    spin->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
+}
+
+void applyUniformComboBoxHeight(QComboBox* combo, int height) {
+    if (combo == nullptr) {
+        return;
+    }
+    combo->setFixedHeight(height);
 }
 
 QString phaseToText(mission::MissileSim::Phase phase) {
@@ -290,7 +323,10 @@ void MainWindow::onMissileSelectionChanged() {
 void MainWindow::onAddTarget() {
     mission::TargetConfig cfg;
     cfg.id = QString("T%1").arg(m_nextTargetId).toStdString();
-    cfg.name = QString("目标-%1").arg(m_nextTargetId).toStdString();
+    auto customName = m_targetNameEdit->text().trimmed();
+    cfg.name = customName.isEmpty()
+        ? QString("目标-%1").arg(m_nextTargetId).toStdString()
+        : customName.toStdString();
     cfg.lonDeg = m_targetLon->value();
     cfg.latDeg = m_targetLat->value();
     cfg.altMeters = m_targetAlt->value();
@@ -327,11 +363,17 @@ void MainWindow::onTargetSelectionChanged() {
 
 void MainWindow::onAddThreat() {
     mission::ThreatZone threat;
+    threat.id = QString("TZ%1").arg(m_nextThreatId).toStdString();
+    auto customName = m_threatNameEdit->text().trimmed();
+    threat.name = customName.isEmpty()
+        ? QString("威胁区-%1").arg(m_nextThreatId).toStdString()
+        : customName.toStdString();
     threat.longitudeDeg = m_threatLon->value();
     threat.latitudeDeg = m_threatLat->value();
     threat.radiusMeters = m_threatRadius->value();
     threat.minAltitudeMeters = 0.0;
     threat.maxAltitudeMeters = m_threatMaxAlt->value();
+    ++m_nextThreatId;
 
     m_threatZones.push_back(threat);
     refreshThreatList();
@@ -343,20 +385,36 @@ void MainWindow::onAddThreat() {
     statusBar()->showMessage(QStringLiteral("已添加威胁区。"), 2000);
 }
 
-void MainWindow::onClearThreats() {
-    m_threatZones.clear();
+void MainWindow::onRemoveThreat() {
+    const int currentIdx = m_threatList->currentRow();
+    if (currentIdx < 0 || currentIdx >= static_cast<int>(m_threatZones.size())) {
+        return;
+    }
+
+    m_threatZones.erase(m_threatZones.begin() + currentIdx);
     refreshThreatList();
 
     if (m_earthWidget != nullptr) {
         m_earthWidget->setThreatZones(m_threatZones);
     }
 
-    statusBar()->showMessage(QStringLiteral("威胁区已清空。"), 2000);
+    statusBar()->showMessage(QStringLiteral("已移除威胁区。"), 2000);
+}
+
+void MainWindow::onThreatSelectionChanged() {
+    saveCurrentThreatParams();
+
+    const int row = m_threatList->currentRow();
+    m_selectedThreatIndex = row;
+    if (row >= 0 && row < static_cast<int>(m_threatZones.size())) {
+        loadThreatParams(row);
+    }
 }
 
 void MainWindow::onPlanRoute() {
     saveCurrentMissileParams();
     saveCurrentTargetParams();
+    saveCurrentThreatParams();
 
     if (m_missileConfigs.empty()) {
         QMessageBox::warning(this, QStringLiteral("配置错误"), QStringLiteral("请至少添加一个导弹。"));
@@ -969,7 +1027,7 @@ void MainWindow::buildUi() {
         "QPushButton { background: #1c79b4; border: 1px solid #3d97cf; border-radius: 5px; padding: 6px 10px; color: #f1f9ff; font-weight: 600; }"
         "QPushButton:hover { background: #2591d4; }"
         "QPushButton:pressed { background: #17689b; }"
-        "QDoubleSpinBox, QSpinBox, QComboBox, QListWidget, QTableWidget { background: #0f1b28; border: 1px solid #375571; border-radius: 4px; color: #e8f3ff; selection-background-color: #2e78ad; }"
+        "QDoubleSpinBox, QSpinBox, QComboBox, QListWidget, QTableWidget, QLineEdit { background: #0f1b28; border: 1px solid #375571; border-radius: 4px; color: #e8f3ff; selection-background-color: #2e78ad; }"
         "QListWidget::item { padding: 5px 4px; border-bottom: 1px solid rgba(72, 107, 139, 0.35); }"
         "QListWidget::item:selected { background: #1f5f8f; color: #f4faff; }"
         "QSplitter::handle { background: #16283d; border: 1px solid #2d4f70; }"
@@ -1187,6 +1245,17 @@ void MainWindow::buildUi() {
     m_missileSpeedSpin = createSpinBox(30.0, 2500.0, 900.0, 0, 20.0, missileGroup);
     m_missileMaxAltSpin = createSpinBox(1000.0, 120000.0, 25000.0, 0, 1000.0, missileGroup);
 
+    const int uniformInputHeight = m_missileLon->sizeHint().height() + 4;
+    applyUniformSpinBoxHeight(m_missileLon, uniformInputHeight);
+    applyUniformSpinBoxHeight(m_missileLat, uniformInputHeight);
+    applyUniformSpinBoxHeight(m_missileAlt, uniformInputHeight);
+    applyUniformComboBoxHeight(m_missileTypeCombo, uniformInputHeight);
+    applyUniformSpinBoxHeight(m_missileSpeedSpin, uniformInputHeight);
+    applyUniformSpinBoxHeight(m_missileMaxAltSpin, uniformInputHeight);
+    if (m_missileTypeCombo != nullptr) {
+        m_missileTypeCombo->setStyleSheet(QStringLiteral("QComboBox { padding-left: 8px; }"));
+    }
+
     int r = 0;
     missileParamLayout->addWidget(new QLabel(QStringLiteral("经度"), missileGroup), r, 0);
     missileParamLayout->addWidget(m_missileLon, r, 1);
@@ -1202,9 +1271,9 @@ void MainWindow::buildUi() {
     missileParamLayout->addWidget(m_missileSpeedSpin, r, 1);
     missileParamLayout->addWidget(new QLabel(QStringLiteral("最大高度(m)"), missileGroup), r, 2);
     missileParamLayout->addWidget(m_missileMaxAltSpin, r, 3);
-    missileParamLayout->setRowMinimumHeight(0, 28);
-    missileParamLayout->setRowMinimumHeight(1, 28);
-    missileParamLayout->setRowMinimumHeight(2, 28);
+    missileParamLayout->setRowMinimumHeight(0, uniformInputHeight);
+    missileParamLayout->setRowMinimumHeight(1, uniformInputHeight);
+    missileParamLayout->setRowMinimumHeight(2, uniformInputHeight);
     missileOuterLayout->addLayout(missileParamLayout);
 
     auto* missileBtns = new QHBoxLayout;
@@ -1227,6 +1296,8 @@ void MainWindow::buildUi() {
 
     auto* targetParamLayout = new QGridLayout;
     targetParamLayout->setVerticalSpacing(6);
+    m_targetNameEdit = new QLineEdit(targetGroup);
+    m_targetNameEdit->setPlaceholderText(QStringLiteral("如：指挥中心A"));
     m_targetLon = createSpinBox(-180.0, 180.0, 118.40, 4, 0.01, targetGroup);
     m_targetLat = createSpinBox(-90.0, 90.0, 40.20, 4, 0.01, targetGroup);
     m_targetAlt = createSpinBox(0.0, 120000.0, 2200.0, 0, 100.0, targetGroup);
@@ -1235,7 +1306,19 @@ void MainWindow::buildUi() {
     m_targetPrioritySpin->setValue(5);
     m_targetPrioritySpin->setToolTip(QStringLiteral("1=最低, 10=最高优先级"));
 
+    applyUniformTextInputHeight(m_targetNameEdit, uniformInputHeight);
+    applyUniformSpinBoxHeight(m_targetLon, uniformInputHeight);
+    applyUniformSpinBoxHeight(m_targetLat, uniformInputHeight);
+    applyUniformSpinBoxHeight(m_targetAlt, uniformInputHeight);
+    applyUniformSpinBoxHeight(m_targetPrioritySpin, uniformInputHeight);
+    if (m_targetPrioritySpin != nullptr) {
+        m_targetPrioritySpin->setButtonSymbols(QAbstractSpinBox::UpDownArrows);
+    }
+
     r = 0;
+    targetParamLayout->addWidget(new QLabel(QStringLiteral("名称"), targetGroup), r, 0);
+    targetParamLayout->addWidget(m_targetNameEdit, r, 1, 1, 3);
+    ++r;
     targetParamLayout->addWidget(new QLabel(QStringLiteral("经度"), targetGroup), r, 0);
     targetParamLayout->addWidget(m_targetLon, r, 1);
     targetParamLayout->addWidget(new QLabel(QStringLiteral("纬度"), targetGroup), r, 2);
@@ -1245,11 +1328,9 @@ void MainWindow::buildUi() {
     targetParamLayout->addWidget(m_targetAlt, r, 1);
     targetParamLayout->addWidget(new QLabel(QStringLiteral("优先级(1-10)"), targetGroup), r, 2);
     targetParamLayout->addWidget(m_targetPrioritySpin, r, 3);
-    ++r;
-    targetParamLayout->addWidget(new QLabel(QStringLiteral(""), targetGroup), r, 0, 1, 4);
-    targetParamLayout->setRowMinimumHeight(0, 28);
-    targetParamLayout->setRowMinimumHeight(1, 28);
-    targetParamLayout->setRowMinimumHeight(2, 28);
+    targetParamLayout->setRowMinimumHeight(0, uniformInputHeight);
+    targetParamLayout->setRowMinimumHeight(1, uniformInputHeight);
+    targetParamLayout->setRowMinimumHeight(2, uniformInputHeight);
     targetOuterLayout->addLayout(targetParamLayout);
 
     auto* targetBtns = new QHBoxLayout;
@@ -1267,40 +1348,55 @@ void MainWindow::buildUi() {
     targetOuterLayout->addWidget(new QLabel(QStringLiteral("提示：高价值目标建议优先级设为 8-10。"), targetGroup));
 
     auto* threatGroup = new QGroupBox(QStringLiteral("威胁区配置"), entitiesSplitter);
-    auto* threatLayout = new QGridLayout(threatGroup);
-    threatLayout->setVerticalSpacing(6);
+    auto* threatOuterLayout = new QVBoxLayout(threatGroup);
     threatGroup->setMinimumHeight(620);
 
+    auto* threatParamLayout = new QGridLayout;
+    threatParamLayout->setVerticalSpacing(6);
+    m_threatNameEdit = new QLineEdit(threatGroup);
+    m_threatNameEdit->setPlaceholderText(QStringLiteral("如：防空区A"));
     m_threatLon = createSpinBox(-180.0, 180.0, 111.2000, 4, 0.01, threatGroup);
     m_threatLat = createSpinBox(-90.0, 90.0, 36.6000, 4, 0.01, threatGroup);
     m_threatRadius = createSpinBox(5000.0, 600000.0, 72000.0, 0, 2000.0, threatGroup);
-    m_threatMaxAlt = createSpinBox(2000.0, 120000.0, 28000.0, 0, 500.0, threatGroup);
+    m_threatMaxAlt = createSpinBox(2000.0, 120000.0, 15000.0, 0, 500.0, threatGroup);
+
+    applyUniformTextInputHeight(m_threatNameEdit, uniformInputHeight);
+    applyUniformSpinBoxHeight(m_threatLon, uniformInputHeight);
+    applyUniformSpinBoxHeight(m_threatLat, uniformInputHeight);
+    applyUniformSpinBoxHeight(m_threatRadius, uniformInputHeight);
+    applyUniformSpinBoxHeight(m_threatMaxAlt, uniformInputHeight);
 
     r = 0;
-    threatLayout->addWidget(new QLabel(QStringLiteral("中心经度"), threatGroup), r, 0);
-    threatLayout->addWidget(m_threatLon, r, 1);
-    threatLayout->addWidget(new QLabel(QStringLiteral("中心纬度"), threatGroup), r, 2);
-    threatLayout->addWidget(m_threatLat, r, 3);
+    threatParamLayout->addWidget(new QLabel(QStringLiteral("名称"), threatGroup), r, 0);
+    threatParamLayout->addWidget(m_threatNameEdit, r, 1, 1, 3);
     ++r;
-    threatLayout->addWidget(new QLabel(QStringLiteral("半径(m)"), threatGroup), r, 0);
-    threatLayout->addWidget(m_threatRadius, r, 1);
-    threatLayout->addWidget(new QLabel(QStringLiteral("高度上限(m)"), threatGroup), r, 2);
-    threatLayout->addWidget(m_threatMaxAlt, r, 3);
+    threatParamLayout->addWidget(new QLabel(QStringLiteral("中心经度"), threatGroup), r, 0);
+    threatParamLayout->addWidget(m_threatLon, r, 1);
+    threatParamLayout->addWidget(new QLabel(QStringLiteral("中心纬度"), threatGroup), r, 2);
+    threatParamLayout->addWidget(m_threatLat, r, 3);
     ++r;
-    threatLayout->addWidget(new QLabel(QStringLiteral(""), threatGroup), r, 0, 1, 4);
+    threatParamLayout->addWidget(new QLabel(QStringLiteral("半径(m)"), threatGroup), r, 0);
+    threatParamLayout->addWidget(m_threatRadius, r, 1);
+    threatParamLayout->addWidget(new QLabel(QStringLiteral("高度上限(m)"), threatGroup), r, 2);
+    threatParamLayout->addWidget(m_threatMaxAlt, r, 3);
+    threatParamLayout->setRowMinimumHeight(0, uniformInputHeight);
+    threatParamLayout->setRowMinimumHeight(1, uniformInputHeight);
+    threatParamLayout->setRowMinimumHeight(2, uniformInputHeight);
+    threatOuterLayout->addLayout(threatParamLayout);
 
-    auto* addThreatButton = new QPushButton(QStringLiteral("添加威胁区"), threatGroup);
-    auto* clearThreatButton = new QPushButton(QStringLiteral("清空威胁区"), threatGroup);
-    ++r;
-    threatLayout->addWidget(addThreatButton, r, 0, 1, 2);
-    threatLayout->addWidget(clearThreatButton, r, 2, 1, 2);
+    auto* threatBtns = new QHBoxLayout;
+    auto* addThreatButton = new QPushButton(QStringLiteral("添加"), threatGroup);
+    addThreatButton->setMinimumWidth(72);
+    auto* removeThreatButton = new QPushButton(QStringLiteral("移除"), threatGroup);
+    removeThreatButton->setMinimumWidth(72);
+    threatBtns->addWidget(addThreatButton);
+    threatBtns->addWidget(removeThreatButton);
+    threatOuterLayout->addLayout(threatBtns);
 
     m_threatList = new QListWidget(threatGroup);
-    m_threatList->setMinimumHeight(260);
-    ++r;
-    threatLayout->addWidget(m_threatList, r, 0, 1, 4);
-    ++r;
-    threatLayout->addWidget(new QLabel(QStringLiteral("建议：半径 30-120km、上限 18-35km 更贴近大范围预警/防空覆盖。"), threatGroup), r, 0, 1, 4);
+    m_threatList->setMinimumHeight(430);
+    threatOuterLayout->addWidget(m_threatList, 1);
+    threatOuterLayout->addWidget(new QLabel(QStringLiteral("建议：半径 30-120km、上限 8-18km 更贴近典型防空覆盖。"), threatGroup));
 
     entitiesSplitter->addWidget(missileGroup);
     entitiesSplitter->addWidget(targetGroup);
@@ -1431,7 +1527,7 @@ void MainWindow::buildUi() {
     setCentralWidget(central);
 
     connect(addThreatButton, &QPushButton::clicked, this, &MainWindow::onAddThreat);
-    connect(clearThreatButton, &QPushButton::clicked, this, &MainWindow::onClearThreats);
+    connect(removeThreatButton, &QPushButton::clicked, this, &MainWindow::onRemoveThreat);
     connect(m_planButton, &QPushButton::clicked, this, &MainWindow::onPlanRoute);
     connect(simButton, &QPushButton::clicked, this, &MainWindow::onStartSimulation);
     connect(failButton, &QPushButton::clicked, this, &MainWindow::onSimulateFailure);
@@ -1445,6 +1541,8 @@ void MainWindow::buildUi() {
     connect(targetAddBtn, &QPushButton::clicked, this, &MainWindow::onAddTarget);
     connect(targetRemoveBtn, &QPushButton::clicked, this, &MainWindow::onRemoveTarget);
     connect(m_targetList, &QListWidget::currentRowChanged, this, &MainWindow::onTargetSelectionChanged);
+
+    connect(m_threatList, &QListWidget::currentRowChanged, this, &MainWindow::onThreatSelectionChanged);
 
     connect(planningNavButton, &QPushButton::clicked, this, [switchPage]() { switchPage(0); });
     connect(scenarioNavButton, &QPushButton::clicked, this, [switchPage]() { switchPage(1); });
@@ -1476,6 +1574,7 @@ void MainWindow::buildUi() {
         m_lastMultiResult = {};
         m_nextMissileId = 1;
         m_nextTargetId = 1;
+        m_nextThreatId = 1;
 
         populateDefaultScenario();
         refreshMissileList();
@@ -1522,16 +1621,23 @@ osgEarth::GeoPoint MainWindow::makeGeoPoint(
 void MainWindow::refreshThreatList() {
     if (m_threatList == nullptr) return;
 
+    m_threatList->blockSignals(true);
     m_threatList->clear();
     for (std::size_t i = 0; i < m_threatZones.size(); ++i) {
         const auto& t = m_threatZones[i];
-        m_threatList->addItem(QStringLiteral("#%1 %2°E %3°N R%4m H%5m")
+        QString displayName = QString::fromStdString(t.name);
+        if (displayName.isEmpty()) {
+            displayName = QStringLiteral("威胁区-%1").arg(static_cast<int>(i + 1));
+        }
+        m_threatList->addItem(QStringLiteral("#%1 %2  %3°E %4°N R%5m H%6m")
                                   .arg(static_cast<int>(i + 1))
+                                  .arg(displayName)
                                   .arg(t.longitudeDeg, 0, 'f', 2)
                                   .arg(t.latitudeDeg, 0, 'f', 2)
                                   .arg(t.radiusMeters, 0, 'f', 0)
                                   .arg(t.maxAltitudeMeters, 0, 'f', 0));
     }
+    m_threatList->blockSignals(false);
 
     updateScenarioSummary();
 }
@@ -1541,14 +1647,21 @@ void MainWindow::refreshMissileList() {
 
     m_missileList->blockSignals(true);
     m_missileList->clear();
+    int idx = 1;
     for (const auto& mc : m_missileConfigs) {
-        m_missileList->addItem(QStringLiteral("%1  %2°E %3°N  H:%4m  %5  V:%6m/s")
-                                   .arg(QString::fromStdString(mc.name))
+        QString displayName = QString::fromStdString(mc.name);
+        if (displayName.isEmpty()) {
+            displayName = QStringLiteral("导弹-%1").arg(idx);
+        }
+        m_missileList->addItem(QStringLiteral("#%1 %2  %3°E %4°N  H:%5m  %6  V:%7m/s")
+                                   .arg(idx)
+                                   .arg(displayName)
                                    .arg(mc.startLonDeg, 0, 'f', 2)
                                    .arg(mc.startLatDeg, 0, 'f', 2)
                                    .arg(mc.startAltMeters, 0, 'f', 0)
                                    .arg(missileTypeName(mc.missileType))
                                    .arg(mc.speedMps, 0, 'f', 0));
+        ++idx;
     }
     m_missileList->blockSignals(false);
 
@@ -1568,15 +1681,24 @@ void MainWindow::refreshMissileList() {
 void MainWindow::refreshTargetList() {
     if (m_targetList == nullptr) return;
 
+    m_targetList->blockSignals(true);
     m_targetList->clear();
+    int idx = 1;
     for (const auto& tc : m_targetConfigs) {
-        m_targetList->addItem(QStringLiteral("%1  %2°E %3°N  H:%4m  P:%5")
-                                  .arg(QString::fromStdString(tc.name))
+        QString displayName = QString::fromStdString(tc.name);
+        if (displayName.isEmpty()) {
+            displayName = QStringLiteral("目标-%1").arg(idx);
+        }
+        m_targetList->addItem(QStringLiteral("#%1 %2  %3°E %4°N  H:%5m  P:%6")
+                                  .arg(idx)
+                                  .arg(displayName)
                                   .arg(tc.lonDeg, 0, 'f', 2)
                                   .arg(tc.latDeg, 0, 'f', 2)
                                   .arg(tc.altMeters, 0, 'f', 0)
                                   .arg(tc.priority));
+        ++idx;
     }
+    m_targetList->blockSignals(false);
 
     updateScenarioSummary();
 }
@@ -1917,6 +2039,10 @@ void MainWindow::saveCurrentTargetParams() {
     }
 
     auto& cfg = m_targetConfigs[m_selectedTargetIndex];
+    auto customName = m_targetNameEdit->text().trimmed();
+    if (!customName.isEmpty()) {
+        cfg.name = customName.toStdString();
+    }
     cfg.lonDeg = m_targetLon->value();
     cfg.latDeg = m_targetLat->value();
     cfg.altMeters = m_targetAlt->value();
@@ -1955,20 +2081,66 @@ void MainWindow::loadTargetParams(int index) {
     if (index < 0 || index >= static_cast<int>(m_targetConfigs.size())) return;
 
     const auto& cfg = m_targetConfigs[index];
+    m_targetNameEdit->blockSignals(true);
     m_targetLon->blockSignals(true);
     m_targetLat->blockSignals(true);
     m_targetAlt->blockSignals(true);
     m_targetPrioritySpin->blockSignals(true);
 
+    m_targetNameEdit->setText(QString::fromStdString(cfg.name));
     m_targetLon->setValue(cfg.lonDeg);
     m_targetLat->setValue(cfg.latDeg);
     m_targetAlt->setValue(cfg.altMeters);
     m_targetPrioritySpin->setValue(cfg.priority);
 
+    m_targetNameEdit->blockSignals(false);
     m_targetLon->blockSignals(false);
     m_targetLat->blockSignals(false);
     m_targetAlt->blockSignals(false);
     m_targetPrioritySpin->blockSignals(false);
+}
+
+void MainWindow::saveCurrentThreatParams() {
+    if (m_selectedThreatIndex < 0 || m_selectedThreatIndex >= static_cast<int>(m_threatZones.size())) {
+        return;
+    }
+
+    auto& tz = m_threatZones[m_selectedThreatIndex];
+    auto customName = m_threatNameEdit->text().trimmed();
+    if (!customName.isEmpty()) {
+        tz.name = customName.toStdString();
+    }
+    tz.longitudeDeg = m_threatLon->value();
+    tz.latitudeDeg = m_threatLat->value();
+    tz.radiusMeters = m_threatRadius->value();
+    tz.maxAltitudeMeters = m_threatMaxAlt->value();
+
+    if (m_earthWidget != nullptr) {
+        m_earthWidget->setThreatZones(m_threatZones);
+    }
+}
+
+void MainWindow::loadThreatParams(int index) {
+    if (index < 0 || index >= static_cast<int>(m_threatZones.size())) return;
+
+    const auto& tz = m_threatZones[index];
+    m_threatNameEdit->blockSignals(true);
+    m_threatLon->blockSignals(true);
+    m_threatLat->blockSignals(true);
+    m_threatRadius->blockSignals(true);
+    m_threatMaxAlt->blockSignals(true);
+
+    m_threatNameEdit->setText(QString::fromStdString(tz.name));
+    m_threatLon->setValue(tz.longitudeDeg);
+    m_threatLat->setValue(tz.latitudeDeg);
+    m_threatRadius->setValue(tz.radiusMeters);
+    m_threatMaxAlt->setValue(tz.maxAltitudeMeters);
+
+    m_threatNameEdit->blockSignals(false);
+    m_threatLon->blockSignals(false);
+    m_threatLat->blockSignals(false);
+    m_threatRadius->blockSignals(false);
+    m_threatMaxAlt->blockSignals(false);
 }
 
 void MainWindow::syncEarthWidgetFromConfig() {
@@ -2002,27 +2174,22 @@ void MainWindow::populateDefaultScenario() {
     m_missileConfigs = {
         {"M1", "导弹-1", 103.80, 32.10, 1800.0, 0, 880.0, 28000.0},
         {"M2", "导弹-2", 105.20, 30.60, 2000.0, 1, 980.0, 26000.0},
-        {"M3", "导弹-3", 107.00, 31.40, 2200.0, 1, 1020.0, 26000.0},
-        {"M4", "导弹-4", 101.70, 29.90, 1600.0, 0, 860.0, 28000.0},
     };
 
     m_targetConfigs = {
         {"T1", "指挥中心A", 118.40, 40.20, 2200.0, 10},
         {"T2", "雷达站A", 116.70, 37.20, 1800.0, 8},
-        {"T3", "补给站A", 114.90, 36.10, 1500.0, 6},
-        {"T4", "防空阵地A", 115.60, 38.30, 1600.0, 7},
     };
 
     m_threatZones = {
-        {111.20, 36.60, 86000.0, 0.0, 25000.0},
-        {114.80, 37.80, 68000.0, 0.0, 22000.0},
-        {116.10, 39.20, 76000.0, 0.0, 27000.0},
-        {118.20, 35.90, 52000.0, 0.0, 20000.0},
-        {113.40, 34.70, 48000.0, 0.0, 18000.0},
+        {"TZ1", "防空区A", 111.20, 36.60, 60000.0, 0.0, 12000.0},
+        {"TZ2", "防空区B", 115.80, 38.20, 50000.0, 0.0, 10000.0},
+        {"TZ3", "预警区A", 113.40, 34.70, 45000.0, 0.0, 8000.0},
     };
 
     m_nextMissileId = static_cast<int>(m_missileConfigs.size()) + 1;
     m_nextTargetId = static_cast<int>(m_targetConfigs.size()) + 1;
+    m_nextThreatId = static_cast<int>(m_threatZones.size()) + 1;
 }
 
 void MainWindow::updateAlgorithmCompareTable() {

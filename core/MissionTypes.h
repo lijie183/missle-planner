@@ -8,11 +8,13 @@
 namespace mission {
 
 struct ThreatZone {
+    std::string id;
+    std::string name;
     double longitudeDeg = 0.0;
     double latitudeDeg = 0.0;
-    double radiusMeters = 10000.0;
+    double radiusMeters = 50000.0;
     double minAltitudeMeters = 0.0;
-    double maxAltitudeMeters = 3000.0;
+    double maxAltitudeMeters = 12000.0;
 };
 
 struct PlanMetrics {

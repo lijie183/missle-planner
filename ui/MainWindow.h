@@ -27,6 +27,7 @@ class QComboBox;
 class QSpinBox;
 class QTableWidget;
 class QPushButton;
+class QLineEdit;
 
 class OsgEarthWidget;
 class TelemetryPlotWidget;
@@ -77,7 +78,8 @@ private slots:
     void onRemoveTarget();
     void onTargetSelectionChanged();
     void onAddThreat();
-    void onClearThreats();
+    void onRemoveThreat();
+    void onThreatSelectionChanged();
     void onPlanRoute();
     void onStartSimulation();
     void onSimulationTick();
@@ -111,8 +113,10 @@ private:
     void updateScenarioSummary();
     void saveCurrentMissileParams();
     void saveCurrentTargetParams();
+    void saveCurrentThreatParams();
     void loadMissileParams(int index);
     void loadTargetParams(int index);
+    void loadThreatParams(int index);
     void syncEarthWidgetFromConfig();
     void stopAllSimulations();
     void populateDefaultScenario();
@@ -131,6 +135,7 @@ private:
     QDoubleSpinBox* m_missileMaxAltSpin = nullptr;
 
     QListWidget* m_targetList = nullptr;
+    QLineEdit* m_targetNameEdit = nullptr;
     QDoubleSpinBox* m_targetLon = nullptr;
     QDoubleSpinBox* m_targetLat = nullptr;
     QDoubleSpinBox* m_targetAlt = nullptr;
@@ -140,6 +145,7 @@ private:
     QDoubleSpinBox* m_threatLat = nullptr;
     QDoubleSpinBox* m_threatRadius = nullptr;
     QDoubleSpinBox* m_threatMaxAlt = nullptr;
+    QLineEdit* m_threatNameEdit = nullptr;
 
     QComboBox* m_allocationCombo = nullptr;
     QComboBox* m_routeAlgoCombo = nullptr;
@@ -204,6 +210,8 @@ private:
 
     int m_selectedMissileIndex = -1;
     int m_selectedTargetIndex = -1;
+    int m_selectedThreatIndex = -1;
     int m_nextMissileId = 1;
     int m_nextTargetId = 1;
+    int m_nextThreatId = 1;
 };
